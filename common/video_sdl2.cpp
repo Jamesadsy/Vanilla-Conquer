@@ -47,6 +47,10 @@
 
 #include <SDL.h>
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
 extern WWKeyboardClass* Keyboard;
 static SDL_Window* window;
 static SDL_Renderer* renderer;
@@ -244,6 +248,23 @@ bool Set_Video_Mode(int w, int h, int bits_per_pixel)
         Settings.Video.WindowWidth = win_w;
         Settings.Video.WindowHeight = win_h;
     }
+
+#if defined(__APPLE__) && TARGET_OS_IOS
+    /*
+    ** iOS has no desktop windowing system: a small (e.g. 640x400) window cannot be
+    ** created and will never be presented, producing a white screen. Force a
+    ** fullscreen-desktop window sized to the device, and request SDL_WINDOW_OPENGL,
+    ** which the GLES render backend needs set at window-creation time to attach its
+    ** renderer (see SDL issue #9035 - without it the window is created but stalls
+    ** without ever showing). SDL_WINDOW_ALLOW_HIGHDPI lets us use the full native
+    ** resolution. The game renders internally at w x h and render_dst scales it to
+    ** the window in Update_HWCursor_Settings(), so 0x0 (device size) is correct here.
+    */
+    win_flags = SDL_WINDOW_FULLSCREEN_DESKTOP | SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI;
+    win_w = 0;
+    win_h = 0;
+    DBG_INFO("iOS: forcing fullscreen-desktop + OpenGL window flags");
+#endif
 
     window =
         SDL_CreateWindow("Vanilla Conquer", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, win_w, win_h, win_flags);
