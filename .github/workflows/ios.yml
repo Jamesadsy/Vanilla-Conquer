@@ -3,11 +3,10 @@
 #
 # What this does:
 #   1. Builds SDL2 and openal-soft as STATIC libs for iOS (no Frameworks/ dir, no rpath juggling)
-#   2. Cross-compiles vanillatd + vanillara with CMake's native iOS support (Ninja = no Xcode project, no signing)
-#   3. Inspects + verifies the .app bundles (executable lives INSIDE vanillatd.app/) and uploads them
-#
-# Note: CMake produces vanillatd.app/ and vanillara.app/ on iOS (bundling is effectively forced),
-# with the Mach-O executable at vanillatd.app/vanillatd. Static SDL2/OpenAL means no dylibs to bundle.
+#   2. Cross-compiles vanillatd + vanillara with CMake's native iOS support (Ninja = no Xcode project)
+#   3. DUMPS common/paths.cpp into the log so we can see the __APPLE__ data-dir branch (diagnostic)
+#   4. Patches Info.plist in-place (Track B): non-empty CFBundleIdentifier + iOS-required keys
+#   5. Inspects + verifies the .app bundles and uploads them
 #
 # Manual trigger only — audit, commit, run from the Actions tab.
 
@@ -17,7 +16,7 @@ on:
   workflow_dispatch:
 
 env:
-  IOS_DEPLOYMENT_TARGET: "16.0"          # safe floor per runbook §4; device is iOS 27
+  IOS_DEPLOYMENT_TARGET: "16.0"          # safe floor; device is iOS 27
   PREFIX: ${{ github.workspace }}/ios-prefix
 
 jobs:
@@ -27,7 +26,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: recursive          # runbook §2 — harmless if repo has none
+          submodules: recursive
+
+      - name: Dump paths source (diagnostic - where does it look for data?)
+        # We need the __APPLE__ branch of the data-directory logic to know where the
+        # engine reads game data on iOS. Print the whole file plus a targeted grep so
+        # the fix can be written against real source, not guesses.
+        run: |
+          echo "=== common/paths.cpp ==="
+          cat common/paths.cpp || echo "paths.cpp not found at common/paths.cpp"
+          echo ""
+          echo "=== common/paths.h ==="
+          cat common/paths.h 2>/dev/null || echo "(no paths.h)"
+          echo ""
+          echo "=== grep for APPLE / BasePath / PrefPath / Application Support across common/ ==="
+          grep -rn -i "APPLE\|BasePath\|PrefPath\|Application Support\|GetBasePath\|getcwd\|Data_Path\|Get_Path" common/ || true
 
       - name: Toolchain info (for the log)
         run: |
@@ -39,7 +52,6 @@ jobs:
         run: brew install ninja
 
       - name: Build SDL2 (static, iOS)
-        # TODO: pin to a release tag (e.g. a specific release-2.32.x) once the pipeline is green
         run: |
           git clone --depth 1 --branch SDL2 https://github.com/libsdl-org/SDL.git sdl2-src
           cmake -S sdl2-src -B sdl2-build -G Ninja \
@@ -56,8 +68,6 @@ jobs:
           cmake --install sdl2-build
 
       - name: Build openal-soft (static, iOS)
-        # TODO: pin to a release tag once green. REQUIRE_COREAUDIO makes configure fail loudly
-        # if the Apple audio backend isn't picked up, rather than silently building a mute lib.
         run: |
           git clone --depth 1 https://github.com/kcat/openal-soft.git openal-src
           cmake -S openal-src -B openal-build -G Ninja \
@@ -75,12 +85,6 @@ jobs:
           cmake --install openal-build
 
       - name: Configure Vanilla Conquer (iOS)
-        # CMAKE_FIND_ROOT_PATH env is read by the repo's own CMakeLists (top of file) and
-        # points find_package at our static SDL2/OpenAL prefix. SDL2_ROOT_DIR/OPENAL_ROOT
-        # are the repo's documented hint vars — belt and braces.
-        # The -framework list covers what static SDL2 + openal-soft need at final link.
-        # If the linker reports undefined symbols naming an Apple framework, add it here;
-        # trim any that prove unnecessary.
         env:
           CMAKE_FIND_ROOT_PATH: ${{ env.PREFIX }}
         run: |
@@ -103,18 +107,44 @@ jobs:
       - name: Build
         run: cmake --build build-ios --parallel
 
+      - name: Fix Info.plist for iOS install (Track B)
+        # CMake generates a macOS-style plist with an EMPTY CFBundleIdentifier and no
+        # iOS-required keys. Empty bundle ID = "not a valid iOS app" in Sideloadly.
+        # PlistBuddy edits the existing plist in place, per-app values. Idempotent via
+        # Delete-then-Add so re-runs don't error.
+        run: |
+          PB=/usr/libexec/PlistBuddy
+          for app in vanillatd vanillara; do
+            plist="build-ios/$app.app/Info.plist"
+            echo "=== patching $plist ==="
+            $PB -c "Delete :CFBundleIdentifier" "$plist" 2>/dev/null || true
+            $PB -c "Add :CFBundleIdentifier string com.james.$app" "$plist"
+            $PB -c "Delete :LSRequiresIPhoneOS" "$plist" 2>/dev/null || true
+            $PB -c "Add :LSRequiresIPhoneOS bool true" "$plist"
+            $PB -c "Delete :MinimumOSVersion" "$plist" 2>/dev/null || true
+            $PB -c "Add :MinimumOSVersion string 16.0" "$plist"
+            $PB -c "Delete :UIDeviceFamily" "$plist" 2>/dev/null || true
+            $PB -c "Add :UIDeviceFamily array" "$plist"
+            $PB -c "Add :UIDeviceFamily:0 integer 1" "$plist"
+            $PB -c "Delete :CFBundleSupportedPlatforms" "$plist" 2>/dev/null || true
+            $PB -c "Add :CFBundleSupportedPlatforms array" "$plist"
+            $PB -c "Add :CFBundleSupportedPlatforms:0 string iPhoneOS" "$plist"
+            $PB -c "Delete :UILaunchScreen" "$plist" 2>/dev/null || true
+            $PB -c "Add :UILaunchScreen dict" "$plist"
+            $PB -c "Delete :UIFileSharingEnabled" "$plist" 2>/dev/null || true
+            $PB -c "Add :UIFileSharingEnabled bool true" "$plist"
+            $PB -c "Delete :LSSupportsOpeningDocumentsInPlace" "$plist" 2>/dev/null || true
+            $PB -c "Add :LSSupportsOpeningDocumentsInPlace bool true" "$plist"
+            echo "--- result ---"
+            cat "$plist"
+          done
+
       - name: Inspect, verify & package bundle
-        # iOS output is vanillatd.app/ (a directory) with the executable inside at
-        # vanillatd.app/vanillatd. Dump contents + any generated Info.plist so we can
-        # confirm the runbook §4 fields (CFBundleIdentifier / CFBundleExecutable / casing)
-        # before we ever reach Sideloadly.
         run: |
           echo "=== bundle contents (td) ==="
           ls -la build-ios/vanillatd.app
           echo "=== bundle contents (ra) ==="
           ls -la build-ios/vanillara.app
-          echo "=== Info.plist (td) if present ==="
-          cat build-ios/vanillatd.app/Info.plist 2>/dev/null || echo "NO Info.plist - we'll add one at stage 2"
           for app in vanillatd vanillara; do
             bin="build-ios/$app.app/$app"
             if [ ! -f "$bin" ]; then
