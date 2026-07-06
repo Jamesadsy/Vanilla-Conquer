@@ -4,10 +4,10 @@
 # What this does:
 #   1. Builds SDL2 and openal-soft as STATIC libs for iOS (no Frameworks/ dir, no rpath juggling)
 #   2. Cross-compiles vanillatd + vanillara with CMake's native iOS support (Ninja = no Xcode project, no signing)
-#   3. Verifies the outputs are arm64 iOS Mach-O and uploads them as artifacts
+#   3. Inspects + verifies the .app bundles (executable lives INSIDE vanillatd.app/) and uploads them
 #
-# Expected first-run behaviour: deps should go green; the vanilla configure/link step is where
-# any needed source patches will announce themselves. Paste the failing log section back to Claude.
+# Note: CMake produces vanillatd.app/ and vanillara.app/ on iOS (bundling is effectively forced),
+# with the Mach-O executable at vanillatd.app/vanillatd. Static SDL2/OpenAL means no dylibs to bundle.
 #
 # Manual trigger only — audit, commit, run from the Actions tab.
 
@@ -103,26 +103,35 @@ jobs:
       - name: Build
         run: cmake --build build-ios --parallel
 
-      - name: Verify binaries (runbook rule - never trust the exit code)
+      - name: Inspect, verify & package bundle
+        # iOS output is vanillatd.app/ (a directory) with the executable inside at
+        # vanillatd.app/vanillatd. Dump contents + any generated Info.plist so we can
+        # confirm the runbook §4 fields (CFBundleIdentifier / CFBundleExecutable / casing)
+        # before we ever reach Sideloadly.
         run: |
-          ls -la build-ios
-          for bin in vanillatd vanillara; do
-            f="build-ios/$bin"
-            if [ ! -f "$f" ]; then
-              echo "::error::$bin not produced - check target names in listing above"
+          echo "=== bundle contents (td) ==="
+          ls -la build-ios/vanillatd.app
+          echo "=== bundle contents (ra) ==="
+          ls -la build-ios/vanillara.app
+          echo "=== Info.plist (td) if present ==="
+          cat build-ios/vanillatd.app/Info.plist 2>/dev/null || echo "NO Info.plist - we'll add one at stage 2"
+          for app in vanillatd vanillara; do
+            bin="build-ios/$app.app/$app"
+            if [ ! -f "$bin" ]; then
+              echo "::error::executable missing inside $app.app - check ls output above"
               exit 1
             fi
-            file "$f"
-            file "$f" | grep -q "arm64" || { echo "::error::$bin is not arm64"; exit 1; }
-            echo "--- linkage for $bin ---"
-            otool -L "$f"
+            file "$bin"
+            file "$bin" | grep -q "arm64" || { echo "::error::$app is not arm64"; exit 1; }
+            echo "--- linkage for $app ---"
+            otool -L "$bin"
           done
 
-      - name: Upload artifacts
+      - name: Upload app bundles
         uses: actions/upload-artifact@v4
         with:
           name: vanilla-conquer-ios-arm64
           path: |
-            build-ios/vanillatd
-            build-ios/vanillara
+            build-ios/vanillatd.app
+            build-ios/vanillara.app
           if-no-files-found: error
