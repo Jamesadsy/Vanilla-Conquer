@@ -1,0 +1,128 @@
+# Vanilla Conquer — iOS (arm64) stage-1 build
+# Place at: .github/workflows/ios.yml in your fork of TheAssemblyArmada/Vanilla-Conquer (vanilla branch)
+#
+# What this does:
+#   1. Builds SDL2 and openal-soft as STATIC libs for iOS (no Frameworks/ dir, no rpath juggling)
+#   2. Cross-compiles vanillatd + vanillara with CMake's native iOS support (Ninja = no Xcode project, no signing)
+#   3. Verifies the outputs are arm64 iOS Mach-O and uploads them as artifacts
+#
+# Expected first-run behaviour: deps should go green; the vanilla configure/link step is where
+# any needed source patches will announce themselves. Paste the failing log section back to Claude.
+#
+# Manual trigger only — audit, commit, run from the Actions tab.
+
+name: iOS build (stage 1)
+
+on:
+  workflow_dispatch:
+
+env:
+  IOS_DEPLOYMENT_TARGET: "16.0"          # safe floor per runbook §4; device is iOS 27
+  PREFIX: ${{ github.workspace }}/ios-prefix
+
+jobs:
+  build-ios:
+    runs-on: macos-latest                # Apple Silicon runner, Xcode + iOS SDK preinstalled
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive          # runbook §2 — harmless if repo has none
+
+      - name: Toolchain info (for the log)
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i iphoneos
+          cmake --version
+
+      - name: Install ninja
+        run: brew install ninja
+
+      - name: Build SDL2 (static, iOS)
+        # TODO: pin to a release tag (e.g. a specific release-2.32.x) once the pipeline is green
+        run: |
+          git clone --depth 1 --branch SDL2 https://github.com/libsdl-org/SDL.git sdl2-src
+          cmake -S sdl2-src -B sdl2-build -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=${IOS_DEPLOYMENT_TARGET} \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSDL_STATIC=ON \
+            -DSDL_SHARED=OFF \
+            -DSDL_TEST=OFF \
+            -DCMAKE_INSTALL_PREFIX=${PREFIX}
+          cmake --build sdl2-build --parallel
+          cmake --install sdl2-build
+
+      - name: Build openal-soft (static, iOS)
+        # TODO: pin to a release tag once green. REQUIRE_COREAUDIO makes configure fail loudly
+        # if the Apple audio backend isn't picked up, rather than silently building a mute lib.
+        run: |
+          git clone --depth 1 https://github.com/kcat/openal-soft.git openal-src
+          cmake -S openal-src -B openal-build -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=${IOS_DEPLOYMENT_TARGET} \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLIBTYPE=STATIC \
+            -DALSOFT_REQUIRE_COREAUDIO=ON \
+            -DALSOFT_UTILS=OFF \
+            -DALSOFT_EXAMPLES=OFF \
+            -DCMAKE_INSTALL_PREFIX=${PREFIX}
+          cmake --build openal-build --parallel
+          cmake --install openal-build
+
+      - name: Configure Vanilla Conquer (iOS)
+        # CMAKE_FIND_ROOT_PATH env is read by the repo's own CMakeLists (top of file) and
+        # points find_package at our static SDL2/OpenAL prefix. SDL2_ROOT_DIR/OPENAL_ROOT
+        # are the repo's documented hint vars — belt and braces.
+        # The -framework list covers what static SDL2 + openal-soft need at final link.
+        # If the linker reports undefined symbols naming an Apple framework, add it here;
+        # trim any that prove unnecessary.
+        env:
+          CMAKE_FIND_ROOT_PATH: ${{ env.PREFIX }}
+        run: |
+          cmake -S . -B build-ios -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=${IOS_DEPLOYMENT_TARGET} \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMAKE_BUNDLE=OFF \
+            -DNETWORKING=OFF \
+            -DBUILD_VANILLATD=ON \
+            -DBUILD_VANILLARA=ON \
+            -DSDL2=ON \
+            -DOPENAL=ON \
+            -DSDL2_ROOT_DIR=${PREFIX} \
+            -DOPENAL_ROOT=${PREFIX} \
+            -DCMAKE_EXE_LINKER_FLAGS="-framework UIKit -framework Foundation -framework CoreGraphics -framework QuartzCore -framework Metal -framework AVFoundation -framework GameController -framework CoreMotion -framework CoreHaptics -framework CoreAudio -framework AudioToolbox -framework CoreVideo -framework CoreBluetooth -framework OpenGLES"
+
+      - name: Build
+        run: cmake --build build-ios --parallel
+
+      - name: Verify binaries (runbook rule - never trust the exit code)
+        run: |
+          ls -la build-ios
+          for bin in vanillatd vanillara; do
+            f="build-ios/$bin"
+            if [ ! -f "$f" ]; then
+              echo "::error::$bin not produced - check target names in listing above"
+              exit 1
+            fi
+            file "$f"
+            file "$f" | grep -q "arm64" || { echo "::error::$bin is not arm64"; exit 1; }
+            echo "--- linkage for $bin ---"
+            otool -L "$f"
+          done
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vanilla-conquer-ios-arm64
+          path: |
+            build-ios/vanillatd
+            build-ios/vanillara
+          if-no-files-found: error
