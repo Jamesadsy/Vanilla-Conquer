@@ -51,6 +51,19 @@
 #include <TargetConditionals.h>
 #endif
 
+/*
+** iOS diagnostic logging. CCDebugString / DBG_* do not reach the iOS system log,
+** so on iOS we also emit os_log lines tagged "VCDBG" that DO show up in the device
+** syslog (filter Sideloadly's SysLog Viewer for "VCDBG"). This lets us see exactly
+** which init call fails and SDL's error string. No-op on every other platform.
+*/
+#if defined(__APPLE__) && TARGET_OS_IOS
+#include <os/log.h>
+#define VCDBG(fmt, ...) os_log(OS_LOG_DEFAULT, "VCDBG: " fmt, ##__VA_ARGS__)
+#else
+#define VCDBG(fmt, ...) ((void)0)
+#endif
+
 extern WWKeyboardClass* Keyboard;
 static SDL_Window* window;
 static SDL_Renderer* renderer;
@@ -220,6 +233,7 @@ SurfaceMonitorClass& AllSurfaces = AllSurfacesDummy; // List of all direct draw 
  *=============================================================================================*/
 bool Set_Video_Mode(int w, int h, int bits_per_pixel)
 {
+    VCDBG("Set_Video_Mode enter w=%d h=%d", w, h);
     SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS);
     SDL_ShowCursor(SDL_DISABLE);
 
@@ -263,27 +277,35 @@ bool Set_Video_Mode(int w, int h, int bits_per_pixel)
     win_flags = SDL_WINDOW_FULLSCREEN_DESKTOP | SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI;
     win_w = 0;
     win_h = 0;
-    DBG_INFO("iOS: forcing fullscreen-desktop + OpenGL window flags");
+    VCDBG("iOS forcing fullscreen-desktop + OpenGL window flags");
 #endif
 
     window =
         SDL_CreateWindow("Vanilla Conquer", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, win_w, win_h, win_flags);
     if (window == nullptr) {
+        VCDBG("SDL_CreateWindow FAILED: %{public}s", SDL_GetError());
         DBG_ERROR("SDL_CreateWindow failed: %s", SDL_GetError());
         Reset_Video_Mode();
         return false;
     }
+    VCDBG("SDL_CreateWindow OK");
 
     DBG_INFO("Created SDL2 %s window in %dx%d", (win_flags ? "fullscreen" : "windowed"), win_w, win_h);
 
     pixel_format = SDL_GetWindowPixelFormat(window);
     if (pixel_format == SDL_PIXELFORMAT_UNKNOWN || SDL_BITSPERPIXEL(pixel_format) < 16) {
+        VCDBG("window pixel format unsupported: %{public}s (%d bpp)",
+              SDL_GetPixelFormatName(pixel_format),
+              SDL_BITSPERPIXEL(pixel_format));
         DBG_ERROR("SDL2 window pixel format unsupported: %s (%d bpp)",
                   SDL_GetPixelFormatName(pixel_format),
                   SDL_BITSPERPIXEL(pixel_format));
         Reset_Video_Mode();
         return false;
     }
+    VCDBG("window pixel format OK: %{public}s (%d bpp)",
+          SDL_GetPixelFormatName(pixel_format),
+          SDL_BITSPERPIXEL(pixel_format));
 
     DBG_INFO("  pixel format: %s (%d bpp)", SDL_GetPixelFormatName(pixel_format), SDL_BITSPERPIXEL(pixel_format));
 
@@ -296,23 +318,29 @@ bool Set_Video_Mode(int w, int h, int bits_per_pixel)
                 renderer_index = i;
             }
 
+            VCDBG("render driver %d: %{public}s", i, info.name);
             DBG_INFO(" %s%s", info.name, (i == renderer_index ? " (selected)" : ""));
         }
     }
+    VCDBG("creating renderer (index=%d)", renderer_index);
 
     renderer = SDL_CreateRenderer(window, renderer_index, SDL_RENDERER_TARGETTEXTURE);
     if (renderer == nullptr) {
+        VCDBG("SDL_CreateRenderer FAILED: %{public}s", SDL_GetError());
         DBG_ERROR("SDL_CreateRenderer failed: %s", SDL_GetError());
         Reset_Video_Mode();
         return false;
     }
+    VCDBG("SDL_CreateRenderer OK");
 
     SDL_RendererInfo info;
     if (SDL_GetRendererInfo(renderer, &info) != 0) {
+        VCDBG("SDL_GetRendererInfo FAILED: %{public}s", SDL_GetError());
         DBG_ERROR("SDL_GetRendererInfo failed: %s", SDL_GetError());
         Reset_Video_Mode();
         return false;
     }
+    VCDBG("renderer driver: %{public}s", info.name);
 
     DBG_INFO("Initialized SDL2 driver '%s'", info.name);
     DBG_INFO("  flags:");
@@ -344,6 +372,7 @@ bool Set_Video_Mode(int w, int h, int bits_per_pixel)
             pixel_format = info.texture_formats[i];
         }
     }
+    VCDBG("selected texture pixel format: %{public}s", SDL_GetPixelFormatName(pixel_format));
 
     for (int i = 0; i < info.num_texture_formats; i++) {
         DBG_INFO("    %s%s",
@@ -381,6 +410,7 @@ bool Set_Video_Mode(int w, int h, int bits_per_pixel)
         Keyboard->Open_Controller();
     }
 
+    VCDBG("Set_Video_Mode returning true (success)");
     return true;
 }
 
@@ -748,8 +778,17 @@ public:
         SDL_SetSurfacePalette(surface, palette);
 
         if (flags & GBC_VISIBLE) {
+            VCDBG("creating visible surface %dx%d", w, h);
             windowSurface = SDL_CreateRGBSurfaceWithFormat(0, w, h, SDL_BITSPERPIXEL(pixel_format), pixel_format);
+            if (windowSurface == nullptr) {
+                VCDBG("windowSurface creation FAILED: %{public}s", SDL_GetError());
+            }
             texture = SDL_CreateTexture(renderer, windowSurface->format->format, SDL_TEXTUREACCESS_STREAMING, w, h);
+            if (texture == nullptr) {
+                VCDBG("SDL_CreateTexture FAILED: %{public}s", SDL_GetError());
+            } else {
+                VCDBG("visible surface + texture OK");
+            }
             frontSurface = this;
         }
     }
