@@ -34,20 +34,24 @@
  *   main -- Initial startup routine (preps library systems).                                  *
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-#include "function.h"
-#include "common/ini.h"
-#include "common/paths.h"
-#include "common/utfargs.h"
-#include "settings.h"
-
 /*
 ** iOS: SDL requires ownership of main(). On iOS a window can only be created
 ** inside a running UIKit application (UIApplicationMain). Including SDL_main.h
-** here renames our main() to SDL_main(); the real main() is provided by the
-** SDL2main static library, which starts the UIKit app machinery and then calls
-** SDL_main() (our code) from within the app lifecycle. Without this,
-** SDL_CreateWindow fails with "Application didn't initialize properly, did you
-** include SDL_main.h in the file containing your main() function?".
+** renames our main() to SDL_main(); the real main() is provided by the SDL2main
+** static library, which starts the UIKit app machinery and then calls SDL_main()
+** (our code) from within the app lifecycle. Without this, SDL_CreateWindow fails
+** with "Application didn't initialize properly, did you include SDL_main.h in
+** the file containing your main() function?".
+**
+** CRITICAL: this include MUST be the first include in this file. function.h's
+** include tree pulls in common/wwkeyboard.h, which does:
+**     #define SDL_MAIN_HANDLED
+**     #include <SDL.h>          (SDL.h includes SDL_main.h first)
+** If that runs first, SDL_main.h is consumed in "handled" mode (no rename) and
+** its include guard makes any later include of it a no-op - silently disabling
+** this fix. Being first, we process SDL_main.h in rename mode; the
+** '#define main SDL_main' persists for the whole file, and wwkeyboard.h's later
+** include harmlessly hits the include guard instead.
 ** Desktop platforms don't need this, so it is guarded to iOS only.
 */
 #if defined(__APPLE__)
@@ -56,6 +60,12 @@
 #include <SDL_main.h>
 #endif
 #endif
+
+#include "function.h"
+#include "common/ini.h"
+#include "common/paths.h"
+#include "common/utfargs.h"
+#include "settings.h"
 
 bool Read_Private_Config_Struct(FileClass& file, NewConfigType* config);
 void Print_Error_End_Exit(char* string);
