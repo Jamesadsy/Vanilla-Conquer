@@ -52,14 +52,48 @@
 #endif
 
 /*
-** iOS diagnostic logging. CCDebugString / DBG_* do not reach the iOS system log,
-** so on iOS we also emit os_log lines tagged "VCDBG" that DO show up in the device
-** syslog (filter Sideloadly's SysLog Viewer for "VCDBG"). This lets us see exactly
-** which init call fails and SDL's error string. No-op on every other platform.
+** iOS diagnostic logging. Neither CCDebugString/DBG_* nor os_log reach us on a
+** sideloaded, non-development-signed app (os_log content is suppressed as private).
+** So on iOS we append each breadcrumb to a plain text file in the app's Documents
+** directory, which is sandbox-writable and visible in the Files app:
+**     On My iPhone -> VanillaTD -> vcdbg.txt
+** After a launch attempt, open that file to see exactly how far Set_Video_Mode got
+** and which SDL call failed (with SDL's error string). No-op on other platforms.
 */
 #if defined(__APPLE__) && TARGET_OS_IOS
-#include <os/log.h>
-#define VCDBG(fmt, ...) os_log(OS_LOG_DEFAULT, "VCDBG: " fmt, ##__VA_ARGS__)
+#include <cstdio>
+#include <cstdarg>
+#include <cstdlib>
+#include <ctime>
+static void VCDBG_write(const char* fmt, ...)
+{
+    const char* home = getenv("HOME");
+    if (home == nullptr) {
+        home = ".";
+    }
+    char path[1200];
+    snprintf(path, sizeof(path), "%s/Documents/vcdbg.txt", home);
+    FILE* f = fopen(path, "a");
+    if (f == nullptr) {
+        return;
+    }
+    /* timestamp each line so repeated launches are distinguishable */
+    time_t t = time(nullptr);
+    struct tm* lt = localtime(&t);
+    char ts[32];
+    if (lt) {
+        strftime(ts, sizeof(ts), "%H:%M:%S", lt);
+        fprintf(f, "[%s] ", ts);
+    }
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(f, fmt, args);
+    va_end(args);
+    fputc('\n', f);
+    fflush(f);
+    fclose(f);
+}
+#define VCDBG(fmt, ...) VCDBG_write(fmt, ##__VA_ARGS__)
 #else
 #define VCDBG(fmt, ...) ((void)0)
 #endif
@@ -283,7 +317,7 @@ bool Set_Video_Mode(int w, int h, int bits_per_pixel)
     window =
         SDL_CreateWindow("Vanilla Conquer", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, win_w, win_h, win_flags);
     if (window == nullptr) {
-        VCDBG("SDL_CreateWindow FAILED: %{public}s", SDL_GetError());
+        VCDBG("SDL_CreateWindow FAILED: %s", SDL_GetError());
         DBG_ERROR("SDL_CreateWindow failed: %s", SDL_GetError());
         Reset_Video_Mode();
         return false;
@@ -294,7 +328,7 @@ bool Set_Video_Mode(int w, int h, int bits_per_pixel)
 
     pixel_format = SDL_GetWindowPixelFormat(window);
     if (pixel_format == SDL_PIXELFORMAT_UNKNOWN || SDL_BITSPERPIXEL(pixel_format) < 16) {
-        VCDBG("window pixel format unsupported: %{public}s (%d bpp)",
+        VCDBG("window pixel format unsupported: %s (%d bpp)",
               SDL_GetPixelFormatName(pixel_format),
               SDL_BITSPERPIXEL(pixel_format));
         DBG_ERROR("SDL2 window pixel format unsupported: %s (%d bpp)",
@@ -303,7 +337,7 @@ bool Set_Video_Mode(int w, int h, int bits_per_pixel)
         Reset_Video_Mode();
         return false;
     }
-    VCDBG("window pixel format OK: %{public}s (%d bpp)",
+    VCDBG("window pixel format OK: %s (%d bpp)",
           SDL_GetPixelFormatName(pixel_format),
           SDL_BITSPERPIXEL(pixel_format));
 
@@ -318,7 +352,7 @@ bool Set_Video_Mode(int w, int h, int bits_per_pixel)
                 renderer_index = i;
             }
 
-            VCDBG("render driver %d: %{public}s", i, info.name);
+            VCDBG("render driver %d: %s", i, info.name);
             DBG_INFO(" %s%s", info.name, (i == renderer_index ? " (selected)" : ""));
         }
     }
@@ -326,7 +360,7 @@ bool Set_Video_Mode(int w, int h, int bits_per_pixel)
 
     renderer = SDL_CreateRenderer(window, renderer_index, SDL_RENDERER_TARGETTEXTURE);
     if (renderer == nullptr) {
-        VCDBG("SDL_CreateRenderer FAILED: %{public}s", SDL_GetError());
+        VCDBG("SDL_CreateRenderer FAILED: %s", SDL_GetError());
         DBG_ERROR("SDL_CreateRenderer failed: %s", SDL_GetError());
         Reset_Video_Mode();
         return false;
@@ -335,12 +369,12 @@ bool Set_Video_Mode(int w, int h, int bits_per_pixel)
 
     SDL_RendererInfo info;
     if (SDL_GetRendererInfo(renderer, &info) != 0) {
-        VCDBG("SDL_GetRendererInfo FAILED: %{public}s", SDL_GetError());
+        VCDBG("SDL_GetRendererInfo FAILED: %s", SDL_GetError());
         DBG_ERROR("SDL_GetRendererInfo failed: %s", SDL_GetError());
         Reset_Video_Mode();
         return false;
     }
-    VCDBG("renderer driver: %{public}s", info.name);
+    VCDBG("renderer driver: %s", info.name);
 
     DBG_INFO("Initialized SDL2 driver '%s'", info.name);
     DBG_INFO("  flags:");
@@ -372,7 +406,7 @@ bool Set_Video_Mode(int w, int h, int bits_per_pixel)
             pixel_format = info.texture_formats[i];
         }
     }
-    VCDBG("selected texture pixel format: %{public}s", SDL_GetPixelFormatName(pixel_format));
+    VCDBG("selected texture pixel format: %s", SDL_GetPixelFormatName(pixel_format));
 
     for (int i = 0; i < info.num_texture_formats; i++) {
         DBG_INFO("    %s%s",
@@ -781,11 +815,11 @@ public:
             VCDBG("creating visible surface %dx%d", w, h);
             windowSurface = SDL_CreateRGBSurfaceWithFormat(0, w, h, SDL_BITSPERPIXEL(pixel_format), pixel_format);
             if (windowSurface == nullptr) {
-                VCDBG("windowSurface creation FAILED: %{public}s", SDL_GetError());
+                VCDBG("windowSurface creation FAILED: %s", SDL_GetError());
             }
             texture = SDL_CreateTexture(renderer, windowSurface->format->format, SDL_TEXTUREACCESS_STREAMING, w, h);
             if (texture == nullptr) {
-                VCDBG("SDL_CreateTexture FAILED: %{public}s", SDL_GetError());
+                VCDBG("SDL_CreateTexture FAILED: %s", SDL_GetError());
             } else {
                 VCDBG("visible surface + texture OK");
             }
