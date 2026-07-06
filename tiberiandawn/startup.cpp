@@ -40,6 +40,23 @@
 #include "common/utfargs.h"
 #include "settings.h"
 
+/*
+** iOS: SDL requires ownership of main(). On iOS a window can only be created
+** inside a running UIKit application (UIApplicationMain). Including SDL_main.h
+** here renames our main() to SDL_main(); the real main() is provided by the
+** SDL2main static library, which starts the UIKit app machinery and then calls
+** SDL_main() (our code) from within the app lifecycle. Without this,
+** SDL_CreateWindow fails with "Application didn't initialize properly, did you
+** include SDL_main.h in the file containing your main() function?".
+** Desktop platforms don't need this, so it is guarded to iOS only.
+*/
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#if TARGET_OS_IOS
+#include <SDL_main.h>
+#endif
+#endif
+
 bool Read_Private_Config_Struct(FileClass& file, NewConfigType* config);
 void Print_Error_End_Exit(char* string);
 void Print_Error_Exit(char* string);
@@ -208,7 +225,7 @@ int main(int argc, char** argv)
         printf("Zuwenig Hauptspeicher verf?gbar.\n");
 #else
 #ifdef FRENCH
-        printf("M‚moire vive (RAM) insuffisante.\n");
+        printf("Mï¿½moire vive (RAM) insuffisante.\n");
 #else
         printf("Insufficient RAM available.\n");
 #endif
