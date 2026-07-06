@@ -22,14 +22,14 @@
 
 /* Detect platform endianness at compile time */
 
-/* When available, these headers can improve platform endianness detection */
-#ifdef __has_include // C++17, supported as extension to C++11 in clang, GCC 5+, vs2015
-/* Apple SDK <endian.h> transitively includes <MacTypes.h>, whose legacy QuickDraw
- * `struct Rect` collides with Vanilla Conquer's `class Rect` (common/rect.h). Apple
- * compilers are always clang, which predefines __BYTE_ORDER__/__ORDER_LITTLE_ENDIAN__,
- * so the detection block below resolves with no system header. Skip includes on Apple. */
-#if defined(__has_include) && !defined(__APPLE__)
-
+/* When available, these headers can improve platform endianness detection.
+ * Skip on Apple: the SDK <endian.h> transitively includes <MacTypes.h>, whose
+ * legacy QuickDraw `struct Rect` collides with Vanilla Conquer's `class Rect`
+ * (common/rect.h). Apple compilers are clang and predefine __BYTE_ORDER__ /
+ * __ORDER_LITTLE_ENDIAN__, so the detection block below still resolves with no
+ * system header. */
+#if defined(__has_include) && !defined(__APPLE__) // C++17, supported as extension to C++11 in clang, GCC 5+, vs2015
+#if __has_include(<endian.h>)
 #include <endian.h> // gnu libc normally provides, linux
 #elif __has_include(<machine/endian.h>)
 #include <machine/endian.h> //open bsd, macos
