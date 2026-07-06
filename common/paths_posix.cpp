@@ -184,7 +184,15 @@ const char* PathsClass::Data_Path()
             Program_Path();
         }
 
+#if defined(__APPLE__) && TARGET_OS_IOS
+        // iOS: the game data is bundled inside the read-only .app directory, which is
+        // exactly where Program_Path() resolves to (.../vanillatd.app). The desktop
+        // "<parent>/share" layout below points outside the sandbox at a nonexistent
+        // directory, so on iOS we read data straight from the bundle root instead.
+        DataPath = ProgramPath;
+#else
         DataPath = ProgramPath.substr(0, ProgramPath.find_last_of("/")) + SEP + "share";
+#endif
 
         if (!Suffix.empty()) {
             DataPath += SEP + Suffix;
@@ -197,7 +205,11 @@ const char* PathsClass::Data_Path()
 const char* PathsClass::User_Path()
 {
     if (UserPath.empty()) {
-#ifdef __APPLE__
+#if defined(__APPLE__) && TARGET_OS_IOS
+        // iOS: writable data must live in the app sandbox. HOME points at the sandbox
+        // root on iOS, and Documents is the standard writable, file-sharing-visible dir.
+        UserPath = User_Home() + "/Documents";
+#elif defined(__APPLE__)
         UserPath = User_Home() + "/Library/Application Support/Vanilla-Conquer";
 #else
         UserPath = Get_Posix_Default("XDG_CONFIG_HOME", ".config") + "/vanilla-conquer";
