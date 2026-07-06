@@ -29,9 +29,6 @@ jobs:
           submodules: recursive
 
       - name: Dump paths source (diagnostic - where does it look for data?)
-        # We need the __APPLE__ branch of the data-directory logic to know where the
-        # engine reads game data on iOS. Print the whole file plus a targeted grep so
-        # the fix can be written against real source, not guesses.
         run: |
           echo "=== common/paths.cpp ==="
           cat common/paths.cpp || echo "paths.cpp not found at common/paths.cpp"
@@ -41,13 +38,11 @@ jobs:
           echo ""
           echo "=== grep for APPLE / BasePath / PrefPath / Application Support across common/ ==="
           grep -rn -i "APPLE\|BasePath\|PrefPath\|Application Support\|GetBasePath\|getcwd\|Data_Path\|Get_Path" common/ || true
-
       - name: Toolchain info (for the log)
         run: |
           xcodebuild -version
           xcodebuild -showsdks | grep -i iphoneos
           cmake --version
-
       - name: Install ninja
         run: brew install ninja
 
@@ -66,7 +61,8 @@ jobs:
             -DCMAKE_INSTALL_PREFIX=${PREFIX}
           cmake --build sdl2-build --parallel
           cmake --install sdl2-build
-
+          echo "=== confirm SDL2main static lib installed (needed for iOS main hijack) ==="
+          ls -la ${PREFIX}/lib/ | grep -i sdl2main || { echo "::error::libSDL2main.a missing from prefix"; exit 1; }
       - name: Build openal-soft (static, iOS)
         run: |
           git clone --depth 1 https://github.com/kcat/openal-soft.git openal-src
@@ -83,10 +79,15 @@ jobs:
             -DCMAKE_INSTALL_PREFIX=${PREFIX}
           cmake --build openal-build --parallel
           cmake --install openal-build
-
       - name: Configure Vanilla Conquer (iOS)
         env:
           CMAKE_FIND_ROOT_PATH: ${{ env.PREFIX }}
+        # NOTE: libSDL2main.a is prepended to the linker flags. On iOS, SDL owns
+        # main(): startup.cpp includes SDL_main.h (renaming the engine's main to
+        # SDL_main), and libSDL2main.a provides the real main() which starts the
+        # UIKit application (UIApplicationMain) and then calls SDL_main from within
+        # the app lifecycle. Without it the link either fails (no main) or the app
+        # dies at SDL_CreateWindow with "Application didn't initialize properly".
         run: |
           cmake -S . -B build-ios -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
@@ -102,16 +103,11 @@ jobs:
             -DOPENAL=ON \
             -DSDL2_ROOT_DIR=${PREFIX} \
             -DOPENAL_ROOT=${PREFIX} \
-            -DCMAKE_EXE_LINKER_FLAGS="-framework UIKit -framework Foundation -framework CoreGraphics -framework QuartzCore -framework Metal -framework AVFoundation -framework GameController -framework CoreMotion -framework CoreHaptics -framework CoreAudio -framework AudioToolbox -framework CoreVideo -framework CoreBluetooth -framework OpenGLES"
-
+            -DCMAKE_EXE_LINKER_FLAGS="${PREFIX}/lib/libSDL2main.a -framework UIKit -framework Foundation -framework CoreGraphics -framework QuartzCore -framework Metal -framework AVFoundation -framework GameController -framework CoreMotion -framework CoreHaptics -framework CoreAudio -framework AudioToolbox -framework CoreVideo -framework CoreBluetooth -framework OpenGLES"
       - name: Build
         run: cmake --build build-ios --parallel
 
       - name: Fix Info.plist for iOS install (Track B)
-        # CMake generates a macOS-style plist with an EMPTY CFBundleIdentifier and no
-        # iOS-required keys. Empty bundle ID = "not a valid iOS app" in Sideloadly.
-        # PlistBuddy edits the existing plist in place, per-app values. Idempotent via
-        # Delete-then-Add so re-runs don't error.
         run: |
           PB=/usr/libexec/PlistBuddy
           for app in vanillatd vanillara; do
@@ -138,7 +134,6 @@ jobs:
             echo "--- result ---"
             cat "$plist"
           done
-
       - name: Inspect, verify & package bundle
         run: |
           echo "=== bundle contents (td) ==="
@@ -156,7 +151,6 @@ jobs:
             echo "--- linkage for $app ---"
             otool -L "$bin"
           done
-
       - name: Upload app bundles
         uses: actions/upload-artifact@v4
         with:
