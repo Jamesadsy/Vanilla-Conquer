@@ -7,6 +7,11 @@
 #   3. DUMPS common/paths.cpp into the log so we can see the __APPLE__ data-dir branch (diagnostic)
 #   4. Patches Info.plist in-place (Track B): non-empty CFBundleIdentifier + iOS-required keys
 #   5. Inspects + verifies the .app bundles and uploads them
+#   6. Enables the engine's debugstring logging layer (VANILLA_LOG_ENABLE - see common/debugstring.h);
+#      startup.cpp routes it to Documents/vcengine.txt on device. Remove the CMAKE_CXX_FLAGS line
+#      below to build with it off again.
+#   7. Stamps BUILDINFO.txt (commit / UTC time / run number) into each bundle so "which build is on
+#      my phone?" is one glance in the Files app.
 #
 # Manual trigger only — audit, commit, run from the Actions tab.
 
@@ -88,6 +93,12 @@ jobs:
         # UIKit application (UIApplicationMain) and then calls SDL_main from within
         # the app lifecycle. Without it the link either fails (no main) or the app
         # dies at SDL_CreateWindow with "Application didn't initialize properly".
+        #
+        # NOTE: CMAKE_CXX_FLAGS defines VANILLA_LOG_ENABLE, which widens the gate in
+        # common/debugstring.h so the engine's CCDebugString/DBG_* logging compiles
+        # into this Release build (normally it is _DEBUG-only and compiles to
+        # nothing). startup.cpp routes the output to Documents/vcengine.txt on the
+        # device. Delete this one flag to switch the whole layer back off.
         run: |
           cmake -S . -B build-ios -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
@@ -95,6 +106,7 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=${IOS_DEPLOYMENT_TARGET} \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_FLAGS="-DVANILLA_LOG_ENABLE" \
             -DMAKE_BUNDLE=OFF \
             -DNETWORKING=OFF \
             -DBUILD_VANILLATD=ON \
@@ -107,6 +119,15 @@ jobs:
       - name: Build
         run: cmake --build build-ios --parallel
 
+      - name: Stamp build info into bundles
+        run: |
+          for app in vanillatd vanillara; do
+            echo "commit=${GITHUB_SHA}"         >  build-ios/$app.app/BUILDINFO.txt
+            echo "built_utc=$(date -u +%FT%TZ)" >> build-ios/$app.app/BUILDINFO.txt
+            echo "run=${GITHUB_RUN_NUMBER}"     >> build-ios/$app.app/BUILDINFO.txt
+            echo "--- $app BUILDINFO.txt ---"
+            cat build-ios/$app.app/BUILDINFO.txt
+          done
       - name: Fix Info.plist for iOS install (Track B)
         run: |
           PB=/usr/libexec/PlistBuddy
