@@ -65,7 +65,138 @@
 #include "common/ini.h"
 #include "common/paths.h"
 #include "common/utfargs.h"
+#include "common/debugstring.h"
 #include "settings.h"
+
+/*
+** iOS diagnostic logging (this file's copy). Same proven technique as the logger
+** in common/video_sdl2.cpp: append timestamped breadcrumbs to a plain text file
+** in the app's sandbox Documents directory, visible in the Files app:
+**     On My iPhone -> VanillaTD -> vcdbg.txt
+** Both copies are 'static' (internal linkage) so they cannot collide at link
+** time; video_sdl2.cpp is deliberately left untouched. No-op on other platforms.
+**
+** In addition to the VCDBG breadcrumbs, main() below routes the engine's own
+** debugstring logging (CCDebugString / DBG_*) into a SECOND file, vcengine.txt,
+** via Debug_String_File(). That channel only produces output when the build
+** defines VANILLA_LOG_ENABLE (see common/debugstring.h and ios.yml); if it
+** produces nothing, the VCDBG trail below is unaffected.
+*/
+#if defined(__APPLE__) && TARGET_OS_IOS
+#include <cstdio>
+#include <cstdarg>
+#include <cstdlib>
+#include <ctime>
+#include <cstring>
+#include <strings.h>
+#include <dirent.h>
+#include <errno.h>
+static void VCDBG_write(const char* fmt, ...)
+{
+    const char* home = getenv("HOME");
+    if (home == nullptr) {
+        home = ".";
+    }
+    char path[1200];
+    snprintf(path, sizeof(path), "%s/Documents/vcdbg.txt", home);
+    FILE* f = fopen(path, "a");
+    if (f == nullptr) {
+        return;
+    }
+    /* timestamp each line so repeated launches are distinguishable */
+    time_t t = time(nullptr);
+    struct tm* lt = localtime(&t);
+    char ts[32];
+    if (lt) {
+        strftime(ts, sizeof(ts), "%H:%M:%S", lt);
+        fprintf(f, "[%s] ", ts);
+    }
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(f, fmt, args);
+    va_end(args);
+    fputc('\n', f);
+    fflush(f);
+    fclose(f);
+}
+#define VCDBG(fmt, ...) VCDBG_write(fmt, ##__VA_ARGS__)
+
+/*
+** atexit marker: runs on any orderly exit()/return-from-main, but NOT if the
+** process dies from a signal/crash. Its presence or absence at the end of the
+** trail tells us which kind of death we had.
+*/
+static void VCDBG_At_Exit(void)
+{
+    VCDBG_write("=== clean exit() reached (atexit marker) ===");
+}
+
+/*
+** Boot-time data audit. Derives the bundle directory from argv[0] directly
+** (independent of the engine's Paths code, so a disagreement between this
+** audit and engine file errors is itself diagnostic), lists every .MIX/.INI
+** actually present with its exact on-disk name and case, then probes the
+** critical files the engine is known to request (exact-uppercase names, as
+** extracted from the binary). iOS APFS is case-sensitive: a file listed here
+** in the wrong case will fail its probe with errno=2 - that pairing IS the
+** diagnosis.
+*/
+static void VCDBG_Data_Audit(const char* argv0)
+{
+    char dir[1200];
+    if (argv0 != nullptr && argv0[0] != '\0') {
+        snprintf(dir, sizeof(dir), "%s", argv0);
+    } else {
+        snprintf(dir, sizeof(dir), ".");
+    }
+    char* slash = strrchr(dir, '/');
+    if (slash != nullptr) {
+        *slash = '\0';
+    } else {
+        snprintf(dir, sizeof(dir), ".");
+    }
+    VCDBG_write("DATA AUDIT: exe dir = %s", dir);
+
+    const char* home = getenv("HOME");
+    VCDBG_write("DATA AUDIT: HOME = %s", home != nullptr ? home : "(null)");
+
+    DIR* d = opendir(dir);
+    if (d == nullptr) {
+        VCDBG_write("DATA AUDIT: opendir FAILED errno=%d (%s)", errno, strerror(errno));
+    } else {
+        int total = 0;
+        int listed = 0;
+        struct dirent* e;
+        while ((e = readdir(d)) != nullptr) {
+            total++;
+            const char* n = e->d_name;
+            size_t l = strlen(n);
+            if (l > 4 && (strcasecmp(n + l - 4, ".MIX") == 0 || strcasecmp(n + l - 4, ".INI") == 0)) {
+                listed++;
+                VCDBG_write("DATA AUDIT: found %s", n);
+            }
+        }
+        closedir(d);
+        VCDBG_write("DATA AUDIT: %d directory entries total, %d MIX/INI listed above", total, listed);
+    }
+
+    static const char* probes[] = {"CONQUER.MIX", "GENERAL.MIX", "CCLOCAL.MIX", "LOCAL.MIX", "CONQUER.INI"};
+    for (int i = 0; i < (int)(sizeof(probes) / sizeof(probes[0])); i++) {
+        char p[1400];
+        snprintf(p, sizeof(p), "%s/%s", dir, probes[i]);
+        FILE* f = fopen(p, "rb");
+        if (f != nullptr) {
+            VCDBG_write("DATA AUDIT: probe %s OK", probes[i]);
+            fclose(f);
+        } else {
+            VCDBG_write("DATA AUDIT: probe %s FAILED errno=%d (%s)", probes[i], errno, strerror(errno));
+        }
+    }
+    VCDBG_write("DATA AUDIT: complete");
+}
+#else
+#define VCDBG(fmt, ...) ((void)0)
+#endif
 
 bool Read_Private_Config_Struct(FileClass& file, NewConfigType* config);
 void Print_Error_End_Exit(char* string);
@@ -228,9 +359,36 @@ int DLL_Startup(const char* command_line_in)
 int main(int argc, char** argv)
 {
     UtfArgs args(argc, argv);
+
+#if defined(__APPLE__) && TARGET_OS_IOS
+    /*
+    ** VCDBG2: unique run marker for this instrumentation build. Also the
+    ** verify-before-package string:  findstr /m /c:"VCDBG2" <binary>
+    */
+    VCDBG("=== VCDBG2 run start ===");
+    atexit(VCDBG_At_Exit);
+    {
+        /*
+        ** Route the engine's own debugstring channel (CCDebugString / DBG_*)
+        ** into a second file. Truncated each launch ("w" mode), so vcengine.txt
+        ** is always the latest run; vcdbg.txt appends and keeps history. If the
+        ** build does not define VANILLA_LOG_ENABLE these calls compile to
+        ** no-ops and only vcdbg.txt is written.
+        */
+        const char* home = getenv("HOME");
+        char engine_log[1200];
+        snprintf(engine_log, sizeof(engine_log), "%s/Documents/vcengine.txt", home != nullptr ? home : ".");
+        Debug_String_File(engine_log);
+        DBG_LOG("vcengine feed alive (DBG_LOG test line)");
+        VCDBG("engine log routed to vcengine.txt");
+    }
+    VCDBG_Data_Audit(args.ArgV[0]);
+#endif
+
     CCDebugString("C&C95 - Starting up.\n");
 
     if (Ram_Free(MEM_NORMAL) < 5000000) {
+        VCDBG("RAM check FAILED, exiting");
 #ifdef GERMAN
         printf("Zuwenig Hauptspeicher verf?gbar.\n");
 #else
@@ -252,14 +410,17 @@ int main(int argc, char** argv)
     */
     Paths.Init("vanillatd", "CONQUER.INI", "CONQUER.MIX", args.ArgV[0]);
     CDFileClass::Refresh_Search_Drives();
+    VCDBG("Paths.Init + Refresh_Search_Drives done");
 
     if (Parse_Command_Line(args.ArgC, args.ArgV)) {
+        VCDBG("Parse_Command_Line true");
 
         WinTimerClass::Init(60);
 
         CCFileClass cfile("CONQUER.INI");
 
         Keyboard = CreateWWKeyboardClass();
+        VCDBG("Keyboard created");
 
 #ifdef JAPANESE
         //////////////////////////////////////if(!ForceEnglish) KBLanguage = 1;
@@ -307,12 +468,14 @@ int main(int argc, char** argv)
 #endif
         }
 
+        VCDBG("reading private config + setup options");
         Read_Private_Config_Struct(cfile, &NewConfig);
 
         /*
         ** Set the options as requested by the ccsetup program
         */
         Read_Setup_Options(&cfile);
+        VCDBG("setup options read");
 
         CCDebugString("C&C95 - Creating main window.\n");
 
@@ -331,6 +494,7 @@ int main(int argc, char** argv)
         CCDebugString("C&C95 - Initialising audio.\n");
 
         SoundOn = Audio_Init(16, false, 11025 * 2, 0);
+        VCDBG("Audio_Init returned SoundOn=%d", (int)SoundOn);
 
         Palette = new (MEM_CLEAR) unsigned char[768];
 
@@ -350,6 +514,7 @@ int main(int argc, char** argv)
 
         if (!video_success) {
             CCDebugString("C&C95 - Failed to set video mode.\n");
+            VCDBG("Set_Video_Mode returned false, exiting");
 #ifdef _WIN32
             MessageBoxA(
                 MainWindow, "Error - Unable to set the video mode.", "Command & Conquer", MB_ICONEXCLAMATION | MB_OK);
@@ -359,6 +524,7 @@ int main(int argc, char** argv)
             return (EXIT_FAILURE);
         }
 
+        VCDBG("video mode OK; initialising video surfaces");
         CCDebugString("C&C95 - Initialising video surfaces.\n");
 
 #ifdef REMASTER_BUILD
@@ -367,7 +533,9 @@ int main(int argc, char** argv)
         HiddenPage.Init(ScreenWidth, ScreenHeight, NULL, 0, (GBC_Enum)0);
 
 #else
+        VCDBG("VisiblePage.Init about to run");
         VisiblePage.Init(ScreenWidth, ScreenHeight, NULL, 0, (GBC_Enum)(GBC_VISIBLE | GBC_VIDEOMEM));
+        VCDBG("VisiblePage.Init returned");
 
         /*
         ** Check that we really got a video memory page. Failure is fatal.
@@ -376,6 +544,7 @@ int main(int argc, char** argv)
             /*
             ** Aaaarrgghh!
             */
+            VCDBG("VisiblePage.IsAllocated()==true -> primary surface FAIL path, exiting");
             CCDebugString("C&C95 - Unable to allocate primary surface.\n");
 #ifdef _WIN32
             MessageBoxA(MainWindow,
@@ -387,6 +556,7 @@ int main(int argc, char** argv)
                 delete[] Palette;
             return (EXIT_FAILURE);
         }
+        VCDBG("primary surface check passed (IsAllocated=false)");
 
         /*
         ** If we have enough left then put the hidpage in video memory unless...
@@ -399,14 +569,22 @@ int main(int argc, char** argv)
         CCDebugString("C&C95 - Allocating back buffer ");
         int video_memory = Get_Free_Video_Memory();
         unsigned video_capabilities = Get_Video_Hardware_Capabilities();
+        VCDBG("back buffer: free_vidmem=%d caps=0x%x VideoBackBufferAllowed=%d",
+              video_memory,
+              video_capabilities,
+              (int)VideoBackBufferAllowed);
         if (video_memory < ScreenWidth * ScreenHeight || (!(video_capabilities & VIDEO_BLITTER))
             || (video_capabilities & VIDEO_NO_HARDWARE_ASSIST) || !VideoBackBufferAllowed) {
             CCDebugString("in system memory.\n");
+            VCDBG("back buffer: system memory path");
             HiddenPage.Init(ScreenWidth, ScreenHeight, NULL, 0, (GBC_Enum)0);
+            VCDBG("HiddenPage.Init (system) returned");
         } else {
             // HiddenPage.Init (ScreenWidth , ScreenHeight , NULL , 0 , (GBC_Enum)0);
             CCDebugString("in video memory.\n");
+            VCDBG("back buffer: video memory path");
             HiddenPage.Init(ScreenWidth, ScreenHeight, NULL, 0, (GBC_Enum)GBC_VIDEOMEM);
+            VCDBG("HiddenPage.Init (video) returned");
 
             /*
             ** Make sure we really got a video memory hid page. If we didnt then things
@@ -417,19 +595,25 @@ int main(int argc, char** argv)
                 ** Oh dear, big trub. This must be an IBM Aptiva or something similarly cruddy.
                 ** We must redo the Hidden Page as system memory.
                 */
+                VCDBG("HiddenPage.IsAllocated()==true -> redoing hid page as system memory");
                 HiddenPage.Un_Init();
                 HiddenPage.Init(ScreenWidth, ScreenHeight, NULL, 0, (GBC_Enum)0);
+                VCDBG("HiddenPage redo returned");
             } else {
+                VCDBG("Attach_DD_Surface about to run");
                 VisiblePage.Attach_DD_Surface(&HiddenPage);
+                VCDBG("Attach_DD_Surface done");
             }
         }
 #endif
 
         SeenBuff.Attach(&VisiblePage, 0, 0, GBUFF_INIT_WIDTH, GBUFF_INIT_HEIGHT);
         HidPage.Attach(&HiddenPage, 0, 0, GBUFF_INIT_WIDTH, GBUFF_INIT_HEIGHT);
+        VCDBG("SeenBuff/HidPage attached");
 
         CCDebugString("C&C95 - Adjusting variables for resolution.\n");
         Options.Adjust_Variables_For_Resolution();
+        VCDBG("Adjust_Variables_For_Resolution done");
 
         CCDebugString("C&C95 - Setting palette.\n");
         /////////Set_Palette(Palette);
@@ -443,15 +627,19 @@ int main(int argc, char** argv)
         Memory_Error = &Memory_Error_Handler;
 
         CCDebugString("C&C95 - Creating mouse class.\n");
+        VCDBG("creating WWMouseClass");
         WWMouse = new WWMouseClass(&SeenBuff, 32, 32);
         //			MouseInstalled = Install_Mouse(32,24,320,200);
         MouseInstalled = true;
+        VCDBG("WWMouseClass created OK");
 
         /*
         ** See if we should run the intro
         */
         INIClass ini;
+        VCDBG("ini.Load(cfile) about to run");
         ini.Load(cfile);
+        VCDBG("ini.Load done");
 
         /*
         **	Check for forced intro movie run disabling. If the conquer
@@ -461,6 +649,7 @@ int main(int argc, char** argv)
             Special.IsFromInstall = ini.Get_Bool("Intro", "PlayIntro", true);
         }
         SlowPalette = ini.Get_Bool("Options", "SlowPalette", false);
+        VCDBG("after intro check: IsFromInstall=%d SlowPalette=%d", (int)Special.IsFromInstall, (int)SlowPalette);
 
         /*
         ** Regardless of whether we should run it or not, here we're
@@ -469,13 +658,17 @@ int main(int argc, char** argv)
         if (Special.IsFromInstall) {
             BreakoutAllowed = true;
             ini.Put_Bool("Intro", "PlayIntro", false);
+            VCDBG("IsFromInstall true: writing PlayIntro=false back via ini.Save");
             ini.Save(cfile);
+            VCDBG("ini.Save(cfile) returned");
         }
 
         Memory_Error_Exit = Print_Error_End_Exit;
 
         CCDebugString("C&C95 - Entering main game.\n");
+        VCDBG("=== calling Main_Game ===");
         Main_Game(argc, argv);
+        VCDBG("=== Main_Game returned ===");
 
         if (RunningAsDLL) {
             return (EXIT_SUCCESS);
@@ -487,6 +680,7 @@ int main(int argc, char** argv)
         ini.Load(cfile);
         Settings.Save(ini);
         ini.Save(cfile);
+        VCDBG("post-game settings saved");
 
         VisiblePage.Clear();
         HiddenPage.Clear();
@@ -494,6 +688,7 @@ int main(int argc, char** argv)
         Memory_Error_Exit = Print_Error_Exit;
 
         CCDebugString("C&C95 - About to exit.\n");
+        VCDBG("post-game shutdown reached");
 
 #ifdef NEW_VIDEO_BUILD
         Reset_Video_Mode();
@@ -538,6 +733,7 @@ int main(int argc, char** argv)
         }
     }
 
+    VCDBG("Parse_Command_Line false, exiting");
     return (EXIT_SUCCESS);
 }
 
@@ -558,6 +754,7 @@ int main(int argc, char** argv)
  *=============================================================================================*/
 void Prog_End(const char* why, bool fatal) // Added why and fatal parameters. ST - 6/27/2019 10:10PM
 {
+    VCDBG("Prog_End called: why=%s fatal=%d", why != nullptr ? why : "(null)", (int)fatal);
     GlyphX_Debug_Print("Prog_End()");
 
     if (why) {
@@ -587,11 +784,14 @@ void Prog_End(const char* why, bool fatal) // Added why and fatal parameters. ST
     }
 
     ProgEndCalled = true;
+    VCDBG("Prog_End finished");
 }
 
 void Print_Error_End_Exit(char* string)
 {
+    VCDBG("Print_Error_End_Exit: %s", string != nullptr ? string : "(null)");
     printf("%s\n", string);
+    VCDBG("Print_Error_End_Exit waiting for key (may appear as a hang)");
     Keyboard->Get();
     Prog_End();
     printf("%s\n", string);
@@ -602,6 +802,7 @@ void Print_Error_End_Exit(char* string)
 
 void Print_Error_Exit(char* string)
 {
+    VCDBG("Print_Error_Exit: %s", string != nullptr ? string : "(null)");
     printf("%s\n", string);
     if (!RunningAsDLL) {
         exit(1);
