@@ -21,9 +21,61 @@
 #include <cmath>
 #include <SDL.h>
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
 void Focus_Loss();
 void Focus_Restore();
 void Process_Network();
+
+// Defined (non-static) in video_sdl2.cpp. Maps a normalized (0..1) finger position
+// to the engine's 640x400 cursor space via render_dst, writing hwcursor.X/Y and
+// latching touch mode so Get_Video_Mouse reports that position.
+void Set_Touch_Position(float nx, float ny);
+
+/*
+** Touch diagnostics. Sideloaded apps get no os_log; append gesture decisions to a
+** plain text file visible in Files (On My iPhone -> VanillaTD -> vctouch.txt).
+** Kept separate from vcdbg.txt so the boot log stays readable. No-op off iOS.
+** Only transitions/clicks are logged (never per-motion), so the file stays small.
+*/
+#if defined(__APPLE__) && TARGET_OS_IOS
+#include <cstdio>
+#include <cstdarg>
+#include <cstdlib>
+#include <ctime>
+static void TOUCHLOG_write(const char* fmt, ...)
+{
+    const char* home = getenv("HOME");
+    if (home == nullptr) {
+        home = ".";
+    }
+    char path[1200];
+    snprintf(path, sizeof(path), "%s/Documents/vctouch.txt", home);
+    FILE* f = fopen(path, "a");
+    if (f == nullptr) {
+        return;
+    }
+    time_t t = time(nullptr);
+    struct tm* lt = localtime(&t);
+    char ts[32];
+    if (lt) {
+        strftime(ts, sizeof(ts), "%H:%M:%S", lt);
+        fprintf(f, "[%s] ", ts);
+    }
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(f, fmt, args);
+    va_end(args);
+    fputc('\n', f);
+    fflush(f);
+    fclose(f);
+}
+#define TOUCHLOG(fmt, ...) TOUCHLOG_write(fmt, ##__VA_ARGS__)
+#else
+#define TOUCHLOG(fmt, ...) ((void)0)
+#endif
 
 WWKeyboardClassSDL2::~WWKeyboardClassSDL2()
 {
@@ -53,10 +105,19 @@ void WWKeyboardClassSDL2::Fill_Buffer_From_System(void)
             }
             break;
         case SDL_MOUSEMOTION:
+            // Ignore mouse motion synthesised from touches (we handle SDL_FINGER* directly).
+            if (event.motion.which == SDL_TOUCH_MOUSEID) {
+                break;
+            }
             Move_Video_Mouse(static_cast<float>(event.motion.xrel), static_cast<float>(event.motion.yrel));
             break;
         case SDL_MOUSEBUTTONDOWN:
         case SDL_MOUSEBUTTONUP: {
+            // Ignore mouse buttons synthesised from touches.
+            if (event.button.which == SDL_TOUCH_MOUSEID) {
+                break;
+            }
+
             int x, y;
 
             switch (event.button.button) {
@@ -83,6 +144,15 @@ void WWKeyboardClassSDL2::Fill_Buffer_From_System(void)
 
             Put_Mouse_Message(key, x, y, event.type == SDL_MOUSEBUTTONDOWN ? false : true);
         } break;
+        case SDL_FINGERDOWN:
+            Handle_Touch_Down(event.tfinger);
+            break;
+        case SDL_FINGERMOTION:
+            Handle_Touch_Motion(event.tfinger);
+            break;
+        case SDL_FINGERUP:
+            Handle_Touch_Up(event.tfinger);
+            break;
         case SDL_WINDOWEVENT:
             switch (event.window.event) {
             case SDL_WINDOWEVENT_EXPOSED:
@@ -129,6 +199,199 @@ void WWKeyboardClassSDL2::Fill_Buffer_From_System(void)
     }
     if (Is_Gamepad_Active()) {
         Process_Controller_Axis_Motion();
+    }
+
+    // Poll for touch long-press (a stationary finger emits no events).
+    Process_Touch_Poll();
+}
+
+void WWKeyboardClassSDL2::Handle_Touch_Down(const SDL_TouchFingerEvent& finger)
+{
+    TouchDeviceId = finger.touchId;
+    int nfingers = SDL_GetNumTouchFingers(finger.touchId);
+
+    if (nfingers >= 2) {
+        // A second finger arrived -> map-pan mode. If a left-drag was in progress,
+        // release the button first so it can't get stuck down.
+        if (TouchLeftDown) {
+            int gx, gy;
+            Get_Video_Mouse(gx, gy);
+            Put_Mouse_Message(VK_LBUTTON, gx, gy, true);
+            TouchLeftDown = false;
+        }
+
+        SDL_Finger* f0 = SDL_GetTouchFinger(finger.touchId, 0);
+        SDL_Finger* f1 = SDL_GetTouchFinger(finger.touchId, 1);
+        if (f0 != nullptr && f1 != nullptr) {
+            PanStartCx = (f0->x + f1->x) * 0.5f;
+            PanStartCy = (f0->y + f1->y) * 0.5f;
+        }
+        TouchState = TOUCH_PANNING;
+        AnalogScrollActive = false;
+        ScrollDirection = SDIR_NONE;
+        TOUCHLOG("down: 2 fingers -> PANNING (centroid %.3f,%.3f)", PanStartCx, PanStartCy);
+        return;
+    }
+
+    // First finger: record, move cursor there, but emit NOTHING yet.
+    TouchPrimaryFinger = finger.fingerId;
+    TouchStartNormX = finger.x;
+    TouchStartNormY = finger.y;
+    TouchStartTime = SDL_GetTicks();
+    TouchLeftDown = false;
+
+    Set_Touch_Position(finger.x, finger.y);
+    Get_Video_Mouse(TouchStartGameX, TouchStartGameY);
+    TouchState = TOUCH_PENDING;
+
+    TOUCHLOG("down: norm=(%.4f,%.4f) game=(%d,%d) -> PENDING",
+             finger.x,
+             finger.y,
+             TouchStartGameX,
+             TouchStartGameY);
+}
+
+void WWKeyboardClassSDL2::Handle_Touch_Motion(const SDL_TouchFingerEvent& finger)
+{
+    if (TouchState == TOUCH_PANNING) {
+        int n = SDL_GetNumTouchFingers(finger.touchId);
+        if (n < 2) {
+            return;
+        }
+        SDL_Finger* f0 = SDL_GetTouchFinger(finger.touchId, 0);
+        SDL_Finger* f1 = SDL_GetTouchFinger(finger.touchId, 1);
+        if (f0 == nullptr || f1 == nullptr) {
+            return;
+        }
+        float cx = (f0->x + f1->x) * 0.5f;
+        float cy = (f0->y + f1->y) * 0.5f;
+        float dx = cx - PanStartCx;
+        float dy = cy - PanStartCy;
+
+        ScrollDirType dirX = SDIR_NONE;
+        ScrollDirType dirY = SDIR_NONE;
+        if (dx > TOUCH_PAN_THRESHOLD) {
+            dirX = SDIR_E;
+        } else if (dx < -TOUCH_PAN_THRESHOLD) {
+            dirX = SDIR_W;
+        }
+        if (dy > TOUCH_PAN_THRESHOLD) {
+            dirY = SDIR_S;
+        } else if (dy < -TOUCH_PAN_THRESHOLD) {
+            dirY = SDIR_N;
+        }
+
+        if (dirX == SDIR_E && dirY == SDIR_N) {
+            ScrollDirection = SDIR_NE;
+            AnalogScrollActive = true;
+        } else if (dirX == SDIR_E && dirY == SDIR_S) {
+            ScrollDirection = SDIR_SE;
+            AnalogScrollActive = true;
+        } else if (dirX == SDIR_W && dirY == SDIR_N) {
+            ScrollDirection = SDIR_NW;
+            AnalogScrollActive = true;
+        } else if (dirX == SDIR_W && dirY == SDIR_S) {
+            ScrollDirection = SDIR_SW;
+            AnalogScrollActive = true;
+        } else if (dirX == SDIR_E) {
+            ScrollDirection = SDIR_E;
+            AnalogScrollActive = true;
+        } else if (dirX == SDIR_W) {
+            ScrollDirection = SDIR_W;
+            AnalogScrollActive = true;
+        } else if (dirY == SDIR_S) {
+            ScrollDirection = SDIR_S;
+            AnalogScrollActive = true;
+        } else if (dirY == SDIR_N) {
+            ScrollDirection = SDIR_N;
+            AnalogScrollActive = true;
+        } else {
+            ScrollDirection = SDIR_NONE;
+            AnalogScrollActive = false;
+        }
+        return;
+    }
+
+    if (finger.fingerId != TouchPrimaryFinger) {
+        return;
+    }
+
+    if (TouchState == TOUCH_PENDING) {
+        float dx = finger.x - TouchStartNormX;
+        float dy = finger.y - TouchStartNormY;
+        if ((dx * dx + dy * dy) > (TOUCH_DEADZONE * TOUCH_DEADZONE)) {
+            // Crossed the deadzone -> begin a left-drag (box select), anchored at
+            // the original press point. Send button-down at the anchor, then move
+            // the cursor to the current finger so the selection box grows.
+            Set_Touch_Position(TouchStartNormX, TouchStartNormY);
+            Put_Mouse_Message(VK_LBUTTON, TouchStartGameX, TouchStartGameY, false);
+            TouchLeftDown = true;
+            Set_Touch_Position(finger.x, finger.y);
+            TouchState = TOUCH_DRAGGING;
+            TOUCHLOG("motion: deadzone crossed -> DRAGGING (anchor %d,%d)",
+                     TouchStartGameX,
+                     TouchStartGameY);
+        } else {
+            // Still a potential tap: track cursor without emitting anything.
+            Set_Touch_Position(finger.x, finger.y);
+        }
+    } else if (TouchState == TOUCH_DRAGGING) {
+        Set_Touch_Position(finger.x, finger.y);
+    }
+}
+
+void WWKeyboardClassSDL2::Handle_Touch_Up(const SDL_TouchFingerEvent& finger)
+{
+    if (TouchState == TOUCH_PANNING) {
+        AnalogScrollActive = false;
+        ScrollDirection = SDIR_NONE;
+        int n = SDL_GetNumTouchFingers(finger.touchId);
+        // n still counts the finger being lifted on some SDL versions; <=1 means done.
+        if (n <= 1) {
+            TouchState = TOUCH_IDLE;
+        }
+        TOUCHLOG("up: PANNING lift (remaining~%d)", n);
+        return;
+    }
+
+    if (finger.fingerId != TouchPrimaryFinger) {
+        return;
+    }
+
+    if (TouchState == TOUCH_PENDING) {
+        // Clean tap -> left click at the press point (down+up same coords).
+        Set_Touch_Position(TouchStartNormX, TouchStartNormY);
+        int gx, gy;
+        Get_Video_Mouse(gx, gy);
+        Put_Mouse_Message(VK_LBUTTON, gx, gy, false);
+        Put_Mouse_Message(VK_LBUTTON, gx, gy, true);
+        TOUCHLOG("up: TAP -> Lclick (%d,%d)", gx, gy);
+    } else if (TouchState == TOUCH_DRAGGING) {
+        Set_Touch_Position(finger.x, finger.y);
+        int gx, gy;
+        Get_Video_Mouse(gx, gy);
+        Put_Mouse_Message(VK_LBUTTON, gx, gy, true);
+        TouchLeftDown = false;
+        TOUCHLOG("up: DRAG end -> Lup (%d,%d)", gx, gy);
+    } else if (TouchState == TOUCH_LONGPRESSED) {
+        TOUCHLOG("up: after LONGPRESS");
+    }
+
+    TouchState = TOUCH_IDLE;
+}
+
+void WWKeyboardClassSDL2::Process_Touch_Poll()
+{
+    if (TouchState == TOUCH_PENDING) {
+        uint32_t now = SDL_GetTicks();
+        if (now - TouchStartTime >= TOUCH_LONGPRESS_MS) {
+            // Long-press -> right click (deselect / cancel) at the press point.
+            Set_Touch_Position(TouchStartNormX, TouchStartNormY);
+            Put_Mouse_Message(VK_RBUTTON, TouchStartGameX, TouchStartGameY, false);
+            Put_Mouse_Message(VK_RBUTTON, TouchStartGameX, TouchStartGameY, true);
+            TouchState = TOUCH_LONGPRESSED;
+            TOUCHLOG("poll: LONGPRESS -> Rclick (%d,%d)", TouchStartGameX, TouchStartGameY);
+        }
     }
 }
 

@@ -104,6 +104,9 @@ static SDL_Renderer* renderer;
 static SDL_Palette* palette;
 static Uint32 pixel_format;
 static SDL_Rect render_dst;
+// Latched true after the first touch; makes Get_Video_Mouse report the cursor
+// position we set from finger events (mirrors how gamepad mode reports hwcursor).
+static bool touch_active = false;
 
 static struct
 {
@@ -268,6 +271,18 @@ SurfaceMonitorClass& AllSurfaces = AllSurfacesDummy; // List of all direct draw 
 bool Set_Video_Mode(int w, int h, int bits_per_pixel)
 {
     VCDBG("Set_Video_Mode enter w=%d h=%d", w, h);
+#if defined(__APPLE__) && TARGET_OS_IOS
+    /*
+    ** These hints must be set BEFORE SDL_Init. Lock to landscape so the drawable
+    ** size (and render_dst) can't change under us, and turn off SDL's touch<->mouse
+    ** emulation so our own SDL_FINGER* handling in wwkeyboard_sdl2.cpp owns input
+    ** (the emulated mouse coords are in points and mis-scale against pixel render_dst).
+    */
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
+    VCDBG("iOS touch/orientation hints set");
+#endif
     SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS);
     SDL_ShowCursor(SDL_DISABLE);
 
@@ -530,9 +545,51 @@ void Move_Video_Mouse(float xrel, float yrel)
     }
 }
 
+/*
+** Map a normalized (0..1) finger position, relative to the window, into the game's
+** GameW x GameH coordinate space and set it as the current cursor position.
+**
+** SDL_FINGER* coordinates are normalized, so multiplying by the renderer OUTPUT size
+** (pixels) puts them in the same space render_dst was computed in (also pixels, from
+** SDL_GetRendererOutputSize). We then subtract the letterbox offset and scale to the
+** game surface. This deliberately avoids the points-vs-pixels mismatch that affects
+** SDL_GetMouseState under SDL_WINDOW_ALLOW_HIGHDPI.
+*/
+void Set_Touch_Position(float nx, float ny)
+{
+    if (renderer == nullptr || render_dst.w <= 0 || render_dst.h <= 0) {
+        return;
+    }
+
+    int out_w = 0, out_h = 0;
+    SDL_GetRendererOutputSize(renderer, &out_w, &out_h);
+
+    float px = nx * (float)out_w;
+    float py = ny * (float)out_h;
+
+    float gx = (px - render_dst.x) * (float)hwcursor.GameW / (float)render_dst.w;
+    float gy = (py - render_dst.y) * (float)hwcursor.GameH / (float)render_dst.h;
+
+    if (gx < 0.0f) {
+        gx = 0.0f;
+    } else if (gx > hwcursor.GameW - 1) {
+        gx = (float)(hwcursor.GameW - 1);
+    }
+    if (gy < 0.0f) {
+        gy = 0.0f;
+    } else if (gy > hwcursor.GameH - 1) {
+        gy = (float)(hwcursor.GameH - 1);
+    }
+
+    hwcursor.X = gx;
+    hwcursor.Y = gy;
+    touch_active = true;
+}
+
 void Get_Video_Mouse(int& x, int& y)
 {
-    if (Keyboard->Is_Gamepad_Active() || (Settings.Mouse.RawInput && (hwcursor.Clip || !Settings.Video.Windowed))) {
+    if (Keyboard->Is_Gamepad_Active() || touch_active
+        || (Settings.Mouse.RawInput && (hwcursor.Clip || !Settings.Video.Windowed))) {
         x = hwcursor.X;
         y = hwcursor.Y;
     } else {

@@ -143,6 +143,7 @@ jobs:
             $PB -c "Delete :UIDeviceFamily" "$plist" 2>/dev/null || true
             $PB -c "Add :UIDeviceFamily array" "$plist"
             $PB -c "Add :UIDeviceFamily:0 integer 1" "$plist"
+            $PB -c "Add :UIDeviceFamily:1 integer 2" "$plist"
             $PB -c "Delete :CFBundleSupportedPlatforms" "$plist" 2>/dev/null || true
             $PB -c "Add :CFBundleSupportedPlatforms array" "$plist"
             $PB -c "Add :CFBundleSupportedPlatforms:0 string iPhoneOS" "$plist"
