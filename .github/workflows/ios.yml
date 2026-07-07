@@ -19,6 +19,14 @@ name: iOS build (stage 1)
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - vanilla
+    paths:
+      - 'common/**'
+      - 'tiberiandawn/**'
+      - 'redalert/**'
+      - '.github/workflows/ios.yml'
 
 env:
   IOS_DEPLOYMENT_TARGET: "16.0"          # safe floor; device is iOS 27
