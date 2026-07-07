@@ -9,13 +9,21 @@
 // distributed with this program. You should have received a copy of the
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
+
 #ifndef COMMON_DEBUGSTRING_H
 #define COMMON_DEBUGSTRING_H
 
 /*
 ** If we aren't building a debug build, then don't even expose the logging interface.
+**
+** iOS port: VANILLA_LOG_ENABLE widens this gate so the logging layer can be
+** compiled into an optimised (Release) build without defining _DEBUG globally.
+** _DEBUG wakes unknown amounts of debug-only game code across the whole engine;
+** VANILLA_LOG_ENABLE wakes exactly this header and nothing else. It is defined
+** by the iOS CI workflow (ios.yml) via CMAKE_CXX_FLAGS. Remove that flag and
+** this file behaves exactly as before on every platform.
 */
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(VANILLA_LOG_ENABLE)
 void Debug_String_Log(unsigned level, const char* file, int line, const char* fmt, ...);
 void Debug_String_File(const char* file);
 #else
@@ -37,37 +45,37 @@ void Debug_String_File(const char* file);
 #define LOGLEVEL_TRACE 6
 
 /* Conditionally define the function like macros for logging levels, allows only certain logging to be compiled into client program. */
-#if LOGLEVEL_TRACE <= LOGGING_LEVEL && defined _DEBUG
+#if LOGLEVEL_TRACE <= LOGGING_LEVEL && (defined(_DEBUG) || defined(VANILLA_LOG_ENABLE))
 #define DBG_TRACE(x, ...) Debug_String_Log(LOGLEVEL_TRACE, __FILE__, __LINE__, ##__VA_ARGS__)
 #else
 #define DBG_TRACE(x, ...) ((void)0)
 #endif
 
-#if LOGLEVEL_DEBUG <= LOGGING_LEVEL && defined _DEBUG
+#if LOGLEVEL_DEBUG <= LOGGING_LEVEL && (defined(_DEBUG) || defined(VANILLA_LOG_ENABLE))
 #define DBG_LOG(x, ...) Debug_String_Log(LOGLEVEL_DEBUG, __FILE__, __LINE__, x, ##__VA_ARGS__)
 #else
 #define DBG_LOG(x, ...) ((void)0)
 #endif
 
-#if LOGLEVEL_INFO <= LOGGING_LEVEL && defined _DEBUG
+#if LOGLEVEL_INFO <= LOGGING_LEVEL && (defined(_DEBUG) || defined(VANILLA_LOG_ENABLE))
 #define DBG_INFO(x, ...) Debug_String_Log(LOGLEVEL_INFO, __FILE__, __LINE__, x, ##__VA_ARGS__)
 #else
 #define DBG_INFO(x, ...) ((void)0)
 #endif
 
-#if LOGLEVEL_WARN <= LOGGING_LEVEL && defined _DEBUG
+#if LOGLEVEL_WARN <= LOGGING_LEVEL && (defined(_DEBUG) || defined(VANILLA_LOG_ENABLE))
 #define DBG_WARN(x, ...) Debug_String_Log(LOGLEVEL_WARN, __FILE__, __LINE__, x, ##__VA_ARGS__)
 #else
 #define DBG_WARN(x, ...) ((void)0)
 #endif
 
-#if LOGLEVEL_ERROR <= LOGGING_LEVEL && defined _DEBUG
+#if LOGLEVEL_ERROR <= LOGGING_LEVEL && (defined(_DEBUG) || defined(VANILLA_LOG_ENABLE))
 #define DBG_ERROR(x, ...) Debug_String_Log(LOGLEVEL_ERROR, __FILE__, __LINE__, x, ##__VA_ARGS__)
 #else
 #define DBG_ERROR(x, ...) ((void)0)
 #endif
 
-#if LOGLEVEL_FATAL <= LOGGING_LEVEL && defined _DEBUG
+#if LOGLEVEL_FATAL <= LOGGING_LEVEL && (defined(_DEBUG) || defined(VANILLA_LOG_ENABLE))
 #define DBG_FATAL(x, ...)                                                                                              \
     do {                                                                                                               \
         Debug_String_Log(LOGLEVEL_FATAL, __FILE__, __LINE__, x, ##__VA_ARGS__);                                        \
