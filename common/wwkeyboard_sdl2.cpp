@@ -96,12 +96,24 @@ void WWKeyboardClassSDL2::Fill_Buffer_From_System(void)
             break;
         case SDL_KEYDOWN:
 #if defined(__APPLE__) && TARGET_OS_IOS
-            // Diagnostic: a SPACE scancode arriving here alongside an SDL_TEXTINPUT " "
-            // would double-insert a space in an edit box. Logged so vctouch.txt can
-            // confirm on device whether the guard below is needed (usually it is not:
-            // printables come only as SDL_TEXTINPUT on the iOS soft keyboard).
-            if (event.key.keysym.scancode == SDL_SCANCODE_SPACE) {
-                TOUCHLOG("keydown: SPACE scancode (watch for TEXTINPUT space double)");
+            // Double-char fix: on iOS the soft keyboard emits BOTH an SDL_KEYDOWN (real
+            // scancode) AND an SDL_TEXTINPUT for each printable key. The scancode route
+            // (To_ASCII + sdl_keymap) and the SDL_TEXTINPUT route (WWKEY_TEXT_BIT) would
+            // each insert the char into an edit box -> doubling (ABC -> AABBCC). While text
+            // input is active (an edit box is focused), drop the scancode for any key that
+            // produces a printable char so only SDL_TEXTINPUT inserts. SDL_TEXTINPUT is the
+            // authoritative source (correct casing/shift/symbols). Control keys
+            // (Return/Backspace/Tab/Esc -> < 0x20; arrows/F-keys/modifiers -> KA_NONE) fall
+            // through unchanged. The guard is inert outside edit boxes (text input off), so
+            // gameplay hotkeys and control-groups are unaffected.
+            if (SDL_IsTextInputActive()) {
+                KeyASCIIType ascii = To_ASCII(event.key.keysym.scancode);
+                if (ascii >= KA_SPACE && ascii <= 0x7E) {
+                    TOUCHLOG("keydown-drop: printable scancode %u ('%c') suppressed (TEXTINPUT owns it)",
+                             (unsigned)event.key.keysym.scancode,
+                             (char)ascii);
+                    break;
+                }
             }
 #endif
             Put_Key_Message(event.key.keysym.scancode, false);
@@ -126,6 +138,17 @@ void WWKeyboardClassSDL2::Fill_Buffer_From_System(void)
             if (event.key.keysym.scancode == SDL_SCANCODE_RETURN && Down(VK_MENU)) {
                 Toggle_Video_Fullscreen();
             } else {
+#if defined(__APPLE__) && TARGET_OS_IOS
+                // Symmetric with SDL_KEYDOWN: while text input is active, drop the release
+                // of a printable scancode too, so the scancode route contributes nothing
+                // for printables (SDL_TEXTINPUT owns them). Control-key releases fall through.
+                if (SDL_IsTextInputActive()) {
+                    KeyASCIIType ascii = To_ASCII(event.key.keysym.scancode);
+                    if (ascii >= KA_SPACE && ascii <= 0x7E) {
+                        break;
+                    }
+                }
+#endif
                 Put_Key_Message(event.key.keysym.scancode, true);
             }
             break;
