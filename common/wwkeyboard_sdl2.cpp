@@ -270,15 +270,17 @@ void WWKeyboardClassSDL2::Handle_Touch_Motion(const SDL_TouchFingerEvent& finger
 
         ScrollDirType dirX = SDIR_NONE;
         ScrollDirType dirY = SDIR_NONE;
+// Content-drag (natural): world follows the fingers; camera scrolls
+        // opposite to finger travel.
         if (dx > TOUCH_PAN_THRESHOLD) {
-            dirX = SDIR_E;
-        } else if (dx < -TOUCH_PAN_THRESHOLD) {
             dirX = SDIR_W;
+        } else if (dx < -TOUCH_PAN_THRESHOLD) {
+            dirX = SDIR_E;
         }
         if (dy > TOUCH_PAN_THRESHOLD) {
-            dirY = SDIR_S;
-        } else if (dy < -TOUCH_PAN_THRESHOLD) {
             dirY = SDIR_N;
+        } else if (dy < -TOUCH_PAN_THRESHOLD) {
+            dirY = SDIR_S;
         }
 
         if (dirX == SDIR_E && dirY == SDIR_N) {

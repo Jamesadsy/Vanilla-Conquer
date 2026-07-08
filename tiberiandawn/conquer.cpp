@@ -2946,7 +2946,7 @@ int VQ_Call_Back(unsigned char*, int)
     Interpolate_2X_Scale(&SysMemPage, &SeenBuff, NULL, Settings.Video.InterpolationMode);
     Frame_Limiter();
 
-    if ((BreakoutAllowed || Debug_Flag) && key == KN_ESC) {
+    if ((BreakoutAllowed || Debug_Flag) && (key == KN_ESC || key == KN_RMOUSE)) {
         Keyboard->Clear();
         Brokeout = true;
         return (true);
