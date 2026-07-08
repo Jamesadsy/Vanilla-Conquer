@@ -145,7 +145,7 @@ int CDFileClass::Open(int rights)
             if (slash != std::string::npos) {
                 base = base.substr(slash + 1);
             }
-            path = Paths.Concatenate_Paths(Paths.User_Path(), base);
+            path = Paths.Concatenate_Paths(Paths.User_Path(), base.c_str());
             BufferIOFileClass::Set_Name(path.c_str());
         }
     }
