@@ -43,6 +43,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
 #ifdef _WIN32
 #include <windows.h> // for MAX_PATH
 #else
@@ -125,6 +129,27 @@ int CDFileClass::Open(int rights)
         path = Paths.Concatenate_Paths(Paths.User_Path(), File_Name());
         BufferIOFileClass::Set_Name(path.c_str());
     }
+#if defined(__APPLE__) && TARGET_OS_IOS
+    else if (rights & WRITE) {
+        // iOS: the .app bundle and data dir are READ-ONLY. A config that was loaded
+        // from there (so File_Name() is now an absolute bundle path) and then saved
+        // back would fail with EPERM, and RawFileClass::Open retries forever -> hang
+        // (seen in Save_Settings from the Game/Visual/Sound Controls dialogs). Only
+        // User_Path is writable, so redirect any write not already inside it to
+        // User_Path/<basename>.
+        std::string fname = File_Name();
+        std::string user = Paths.User_Path();
+        if (fname.compare(0, user.size(), user) != 0) {
+            std::string base = fname;
+            size_t slash = base.find_last_of('/');
+            if (slash != std::string::npos) {
+                base = base.substr(slash + 1);
+            }
+            path = Paths.Concatenate_Paths(Paths.User_Path(), base);
+            BufferIOFileClass::Set_Name(path.c_str());
+        }
+    }
+#endif
 
     return (BufferIOFileClass::Open(rights));
 }
