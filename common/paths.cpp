@@ -22,6 +22,10 @@
 #include <unistd.h>
 #endif
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
 PathsClass Paths;
 
 void PathsClass::Init(const char* suffix, const char* ini_name, const char* data_name, const char* cmd_arg)
@@ -100,11 +104,24 @@ void PathsClass::Init(const char* suffix, const char* ini_name, const char* data
     // Same goes for the UserPath.
     if (ini.Get_String(section, "UserPath", "", buffer, sizeof(buffer)) < sizeof(buffer) && buffer[0] != '\0') {
         UserPath = buffer;
-    } else if (use_argv_path) {
+    }
+#if defined(__APPLE__) && TARGET_OS_IOS
+    // iOS: the .app bundle (ProgramPath) is READ-ONLY, so "portable mode" (user data
+    // stored next to the binary) cannot work -- every write would fail. Keep UserPath at
+    // the writable sandbox Documents dir already set by User_Path(). An explicit [Paths]
+    // UserPath override (handled above) still wins. Without this guard, finding CONQUER.INI
+    // in the bundle sets use_prog_path/use_argv_path and clobbers UserPath with the
+    // read-only bundle -> "Error saving game!" and settings write-backs to a read-only path.
+    else {
+        DBG_INFO("iOS: keeping sandbox UserPath (bundle is read-only), skipping portable-mode override");
+    }
+#else
+    else if (use_argv_path) {
         UserPath = argv_path;
     } else if (use_prog_path) {
         UserPath = ProgramPath;
     }
+#endif
 
     DBG_INFO("Read only data directory is set to '%s'", DataPath.c_str());
     DBG_INFO("Read/Write user data directory is set to '%s'", UserPath.c_str());
