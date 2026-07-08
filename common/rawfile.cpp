@@ -167,11 +167,16 @@ char const* RawFileClass::Set_Name(char const* filename)
     }
 
     /*
-    ** If we ever save this file, make sure we save it in lowercase but
-    ** if Resolve_File finds an actual file on-disk we use the real name
-    ** instead.
+    ** DOS-compat case-normalisation applies to the FILENAME only, never the
+    ** directory portion. On a case-sensitive sandbox (iOS) the directory comes
+    ** from the OS with its real case (e.g. a mixed-case container UUID plus
+    ** "Documents"); lowercasing the whole path made a new-file write target a
+    ** non-existent all-lowercase directory -> ENOENT ("Error saving game!").
+    ** Lowercase only the basename here; Resolve_File below still resolves
+    ** existing files case-insensitively (and restores real filename case).
     */
-    _strlwr(Filename);
+    char* base = strrchr(Filename, '/');
+    _strlwr(base != nullptr ? base + 1 : Filename);
 
     /*
     ** Try to locate an existing file ignoring case, updates Filename
