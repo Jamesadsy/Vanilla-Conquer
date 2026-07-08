@@ -45,6 +45,7 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "debugstring.h"
 #include "textblit.h"
 #include "common/irandom.h"
 #include "common/framelimit.h"
@@ -1618,6 +1619,17 @@ void ScoreClass::Input_Name(char str[], int xpos, int ypos, char const pal[])
     */
     PseudoSeenBuff->Blit(SysMemPage);
 
+    // iOS: the hall-of-fame name entry is a bespoke text field (NOT an EditClass gadget),
+    // so the on-screen keyboard is not raised automatically. Without it there is no way to
+    // type a name or send Return on a touch device, and the score screen hangs here on the
+    // first mission clear (a blank hall of fame means any score qualifies). Raise the soft
+    // keyboard for the duration; its Return arrives as KN_RETURN and ends the loop below.
+    // No-op off iOS.
+    DBG_INFO("Input_Name: raising soft keyboard for hall-of-fame entry");
+    if (Keyboard != nullptr) {
+        Keyboard->Show_Soft_Keyboard();
+    }
+
     do {
         Call_Back();
         Animate_Score_Objs();
@@ -1687,6 +1699,10 @@ void ScoreClass::Input_Name(char str[], int xpos, int ypos, char const pal[])
 
         Frame_Limiter();
     } while (key != KN_RETURN && key != KN_KEYPAD_RETURN);
+
+    if (Keyboard != nullptr) {
+        Keyboard->Hide_Soft_Keyboard();
+    }
 }
 
 void Animate_Cursor(int pos, int ypos)
