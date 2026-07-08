@@ -844,6 +844,15 @@ typedef enum KeyNumType : unsigned short
 
     KN_MOUSEWHEEL_UP = VK_MOUSEWHEEL_UP,
     KN_MOUSEWHEEL_DOWN = VK_MOUSEWHEEL_DOWN,
+
+#ifdef SDL2_BUILD
+    // Synthetic scancodes for controller-only actions that have no default keyboard
+    // binding. Emitted by the SDL2 controller handler (Handle_Controller_Button_Event)
+    // and matched in the per-game hotkey handler. Chosen as F13/F14 because they are
+    // never bound by default, so they cannot collide with real gameplay hotkeys.
+    KN_CTRL_REPAIRSELL_CYCLE = SDL_SCANCODE_F13,
+    KN_CTRL_SIDEBAR_TOGGLE = SDL_SCANCODE_F14,
+#endif
 } KeyNumType;
 
 typedef enum ScrollDirType : unsigned char

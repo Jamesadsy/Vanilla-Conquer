@@ -677,6 +677,25 @@ void Keyboard_Process(KeyNumType& input)
         input = KN_NONE;
     }
 
+#ifdef SDL2_BUILD
+    /*
+    **	Controller (Square): cycle repair -> sell -> off with a single button. The
+    **	synthetic scancode is emitted by Handle_Controller_Button_Event.
+    */
+    if (key != 0 && key == KN_CTRL_REPAIRSELL_CYCLE) {
+        Map.Repair_Sell_Cycle();
+        input = KN_NONE;
+    }
+
+    /*
+    **	Controller (Triangle): toggle the build sidebar on/off (fullscreen tactical view).
+    */
+    if (key != 0 && key == KN_CTRL_SIDEBAR_TOGGLE) {
+        Map.SidebarClass::Activate(-1);
+        input = KN_NONE;
+    }
+#endif
+
     /*
     **	Toggles the map zoom mode similarly to pressing the map button.
     */

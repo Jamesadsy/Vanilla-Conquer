@@ -194,6 +194,7 @@ public:
     COORDINATE Closest_Free_Spot(COORDINATE coord, bool any = false) const;
     void Sell_Mode_Control(int control);
     void Repair_Mode_Control(int control);
+    void Repair_Sell_Cycle(void);
 
     void Flag_Cell(CELL cell)
     {

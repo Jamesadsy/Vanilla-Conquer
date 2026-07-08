@@ -564,20 +564,29 @@ void WWKeyboardClassSDL2::Handle_Controller_Button_Event(const SDL_ControllerBut
         key = VK_RBUTTON;
         break;
     case SDL_CONTROLLER_BUTTON_X:
+        // Square: cycle repair -> sell -> off. F13 == KN_CTRL_REPAIRSELL_CYCLE, handled
+        // in the per-game hotkey handler (Map.Repair_Sell_Cycle()).
         keyboardPress = true;
-        scancode = SDL_SCANCODE_G;
+        scancode = SDL_SCANCODE_F13;
+        TOUCHLOG("controller: Square -> repair/sell cycle (%s)",
+                 button.state == SDL_PRESSED ? "press" : "release");
         break;
     case SDL_CONTROLLER_BUTTON_Y:
+        // Triangle: toggle the build sidebar on/off. F14 == KN_CTRL_SIDEBAR_TOGGLE,
+        // handled in the per-game hotkey handler (Map.SidebarClass::Activate(-1)).
         keyboardPress = true;
-        scancode = SDL_SCANCODE_F;
+        scancode = SDL_SCANCODE_F14;
+        TOUCHLOG("controller: Triangle -> sidebar toggle (%s)",
+                 button.state == SDL_PRESSED ? "press" : "release");
         break;
     case SDL_CONTROLLER_BUTTON_BACK:
         keyboardPress = true;
         scancode = SDL_SCANCODE_ESCAPE;
         break;
     case SDL_CONTROLLER_BUTTON_START:
+        // Start: open the in-game Options menu (Esc == KeyOption1), which pauses the game.
         keyboardPress = true;
-        scancode = SDL_SCANCODE_RETURN;
+        scancode = SDL_SCANCODE_ESCAPE;
         break;
     case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
         keyboardPress = true;
@@ -586,6 +595,16 @@ void WWKeyboardClassSDL2::Handle_Controller_Button_Event(const SDL_ControllerBut
     case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:
         keyboardPress = true;
         scancode = SDL_SCANCODE_LALT;
+        break;
+    case SDL_CONTROLLER_BUTTON_LEFTSTICK:
+        // L3 (left-stick click): guard (relocated from Square).
+        keyboardPress = true;
+        scancode = SDL_SCANCODE_G;
+        break;
+    case SDL_CONTROLLER_BUTTON_RIGHTSTICK:
+        // R3 (right-stick click): formation (relocated from Triangle).
+        keyboardPress = true;
+        scancode = SDL_SCANCODE_F;
         break;
     case SDL_CONTROLLER_BUTTON_DPAD_UP:
         keyboardPress = true;

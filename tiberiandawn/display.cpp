@@ -4284,6 +4284,25 @@ void DisplayClass::Repair_Mode_Control(int control)
 }
 
 /***********************************************************************************************
+ * DisplayClass::Repair_Sell_Cycle -- One-button cycle through repair/sell modes.              *
+ *                                                                                             *
+ *    Steps the cursor mode: off -> repair -> sell -> off. Used by the controller (Square).    *
+ *    Reads the live IsRepairMode/IsSellMode flags so it stays correct even if the player      *
+ *    also toggled a mode via touch or the sidebar buttons.                                    *
+ *=============================================================================================*/
+void DisplayClass::Repair_Sell_Cycle(void)
+{
+    if (IsRepairMode) {
+        Repair_Mode_Control(0);
+        Sell_Mode_Control(1);
+    } else if (IsSellMode) {
+        Sell_Mode_Control(0);
+    } else {
+        Repair_Mode_Control(1);
+    }
+}
+
+/***********************************************************************************************
  * DisplayClass::In_View -- Determines if cell is visible on screen.                           *
  *                                                                                             *
  *    Use this routine to determine if the specified cell is visible on                        *
