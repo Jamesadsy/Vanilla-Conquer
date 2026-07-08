@@ -29,6 +29,8 @@ public:
     virtual bool Is_Analog_Scroll_Active();
     virtual unsigned char Get_Scroll_Direction();
     virtual KeyASCIIType To_ASCII(unsigned short key);
+    virtual void Show_Soft_Keyboard();
+    virtual void Hide_Soft_Keyboard();
 
 private:
     void Handle_Controller_Axis_Event(const SDL_ControllerAxisEvent& motion);

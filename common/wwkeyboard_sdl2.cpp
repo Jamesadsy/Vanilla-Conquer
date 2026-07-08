@@ -95,8 +95,33 @@ void WWKeyboardClassSDL2::Fill_Buffer_From_System(void)
             exit(0);
             break;
         case SDL_KEYDOWN:
+#if defined(__APPLE__) && TARGET_OS_IOS
+            // Diagnostic: a SPACE scancode arriving here alongside an SDL_TEXTINPUT " "
+            // would double-insert a space in an edit box. Logged so vctouch.txt can
+            // confirm on device whether the guard below is needed (usually it is not:
+            // printables come only as SDL_TEXTINPUT on the iOS soft keyboard).
+            if (event.key.keysym.scancode == SDL_SCANCODE_SPACE) {
+                TOUCHLOG("keydown: SPACE scancode (watch for TEXTINPUT space double)");
+            }
+#endif
             Put_Key_Message(event.key.keysym.scancode, false);
             break;
+#if defined(__APPLE__) && TARGET_OS_IOS
+        case SDL_TEXTINPUT:
+            // iOS soft keyboard delivers typed characters here as UTF-8 text, not as
+            // scancodes. Inject each printable ASCII char into the keyboard buffer as a
+            // literal-text key (WWKEY_TEXT_BIT); To_ASCII returns the low byte directly,
+            // so EditClass inserts it. Return/Backspace still arrive via SDL_KEYDOWN
+            // scancodes and are handled by the normal keymap path, so they are skipped here.
+            for (const char* p = event.text.text; *p != '\0'; ++p) {
+                unsigned char c = (unsigned char)*p;
+                if (c >= 0x20 && c < 0x7F) {
+                    Put((unsigned short)(c | WWKEY_TEXT_BIT));
+                    TOUCHLOG("textinput: '%c' (0x%02X) -> buffer", c, c);
+                }
+            }
+            break;
+#endif
         case SDL_KEYUP:
             if (event.key.keysym.scancode == SDL_SCANCODE_RETURN && Down(VK_MENU)) {
                 Toggle_Video_Fullscreen();
@@ -584,6 +609,12 @@ KeyASCIIType WWKeyboardClassSDL2::To_ASCII(unsigned short key)
         return KA_NONE;
     }
 
+    // Literal typed character injected from SDL_TEXTINPUT (iOS soft keyboard). The low
+    // byte is already the ASCII value, so return it directly and skip the scancode keymap.
+    if (key & WWKEY_TEXT_BIT) {
+        return (KeyASCIIType)(key & 0xFF);
+    }
+
     key &= 0xFF; // drop all mods
 
     if (key > ARRAY_SIZE(sdl_keymap) / 2 - 1) {
@@ -595,6 +626,26 @@ KeyASCIIType WWKeyboardClassSDL2::To_ASCII(unsigned short key)
     } else {
         return sdl_keymap[key];
     }
+}
+
+void WWKeyboardClassSDL2::Show_Soft_Keyboard()
+{
+#if defined(__APPLE__) && TARGET_OS_IOS
+    if (!SDL_IsTextInputActive()) {
+        SDL_StartTextInput();
+        TOUCHLOG("soft keyboard: SDL_StartTextInput (edit focus gained)");
+    }
+#endif
+}
+
+void WWKeyboardClassSDL2::Hide_Soft_Keyboard()
+{
+#if defined(__APPLE__) && TARGET_OS_IOS
+    if (SDL_IsTextInputActive()) {
+        SDL_StopTextInput();
+        TOUCHLOG("soft keyboard: SDL_StopTextInput (edit focus cleared)");
+    }
+#endif
 }
 
 WWKeyboardClass* CreateWWKeyboardClass(void)

@@ -51,6 +51,7 @@ typedef enum
     WWKEY_RLS_BIT = 0x800,
     WWKEY_VK_BIT = 0x1000,
     WWKEY_DBL_BIT = 0x2000,
+    WWKEY_TEXT_BIT = 0x4000, // low byte is a literal ASCII char (iOS SDL_TEXTINPUT), not a scancode
     WWKEY_BTN_BIT = 0x8000,
 } WWKey_Type;
 
@@ -879,6 +880,16 @@ public:
     virtual void Close_Controller();
     virtual bool Is_Analog_Scroll_Active();
     virtual unsigned char Get_Scroll_Direction();
+
+    // On-screen (soft) keyboard control for touch platforms. Default is a no-op so
+    // desktop/Windows builds are unaffected; the SDL2 backend overrides these on iOS
+    // to call SDL_StartTextInput/SDL_StopTextInput. Driven by gadget focus changes.
+    virtual void Show_Soft_Keyboard()
+    {
+    }
+    virtual void Hide_Soft_Keyboard()
+    {
+    }
 
 #if defined(_WIN32) && !defined(SDL_BUILD)
     /* Define the main hook for the message processing loop.					*/

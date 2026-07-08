@@ -760,6 +760,12 @@ void GadgetClass::Set_Focus(void)
     }
     Flags |= KEYBOARD;
     Focused = this;
+
+    // A gadget taking keyboard focus is the engine's signal that it wants typed input
+    // (in practice only edit boxes do). Raise the on-screen keyboard on touch platforms.
+    if (Keyboard != nullptr) {
+        Keyboard->Show_Soft_Keyboard();
+    }
 }
 
 /***********************************************************************************************
@@ -783,6 +789,11 @@ void GadgetClass::Clear_Focus(void)
     if (Focused == this) {
         Flags &= ~KEYBOARD;
         Focused = 0;
+
+        // Focus lost (Enter/Esc or dialog dismissed) -> dismiss the on-screen keyboard.
+        if (Keyboard != nullptr) {
+            Keyboard->Hide_Soft_Keyboard();
+        }
     }
 }
 
