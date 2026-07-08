@@ -208,6 +208,10 @@ const char* PathsClass::User_Path()
 #if defined(__APPLE__) && TARGET_OS_IOS
         // iOS: writable data must live in the app sandbox. HOME points at the sandbox
         // root on iOS, and Documents is the standard writable, file-sharing-visible dir.
+        // Write to Documents ITSELF (no Suffix subfolder): the per-app sandbox already
+        // isolates data, Documents always exists and is proven writable (the diagnostic
+        // logs live there), and creating a Documents/<suffix> subdir was failing -- which
+        // silently broke save-game and settings writes.
         UserPath = User_Home() + "/Documents";
 #elif defined(__APPLE__)
         UserPath = User_Home() + "/Library/Application Support/Vanilla-Conquer";
@@ -215,9 +219,11 @@ const char* PathsClass::User_Path()
         UserPath = Get_Posix_Default("XDG_CONFIG_HOME", ".config") + "/vanilla-conquer";
 #endif
 
+#if !(defined(__APPLE__) && TARGET_OS_IOS)
         if (!Suffix.empty()) {
             UserPath += SEP + Suffix;
         }
+#endif
 
         Create_Directory(UserPath.c_str());
     }

@@ -45,6 +45,9 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "debugstring.h"
+#include <cerrno>
+#include <cstring>
 
 extern bool DLLSave(FileClass& file);
 extern bool DLLLoad(FileClass& file);
@@ -137,9 +140,14 @@ bool Save_Game(const char* file_name, const char* descr)
     **	Open the file
     */
     if (!file.Open(file_name, WRITE)) {
+        DBG_INFO("Save_Game: FAILED to open '%s' for write (errno %d: %s)",
+                 file.File_Name(),
+                 errno,
+                 strerror(errno));
         Decode_All_Pointers();
         return (false);
     }
+    DBG_INFO("Save_Game: opened '%s' for write OK", file.File_Name());
 #ifdef REMASTER_BUILD
     /*
     ** Save the DLLs variables first, so we can do a version check in the DLL when we begin the load

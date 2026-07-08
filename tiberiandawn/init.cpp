@@ -49,6 +49,10 @@
 #include "common/winasm.h"
 #include <time.h>
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
 /****************************************
 **	Function prototypes for this module **
 *****************************************/
@@ -1289,6 +1293,15 @@ bool Select_Game(bool fade)
             **	Exit to DOS.
             */
             case SEL_EXIT:
+#if defined(__APPLE__) && TARGET_OS_IOS
+                // iOS: there is no supported way to quit or minimise an app, and Prog_End()
+                // simply blanks the screen and hangs (requiring a force-close). Make "Exit
+                // Game" a harmless no-op that returns to the main menu instead of quitting.
+                display = true;
+                fade = true;
+                selection = SEL_NONE;
+                break;
+#else
 #ifdef JAPANESE
                 Hide_Mouse();
 #endif
@@ -1298,6 +1311,7 @@ bool Select_Game(bool fade)
                 VisiblePage.Clear();
 #endif
                 return (false);
+#endif
 
             /*
             **	Display the hall of fame.
