@@ -1607,6 +1607,27 @@ void ScoreClass::Count_Up_Print(const char* str, int percent, int max, int xpos,
  *=============================================================================================*/
 void ScoreClass::Input_Name(char str[], int xpos, int ypos, char const pal[])
 {
+#if defined(__APPLE__) && TARGET_OS_IOS
+    // iOS: this bespoke name field cannot reliably raise the on-screen keyboard on this
+    // fullscreen (non-gadget) screen, so an interactive entry would hang with no way to
+    // type a name or press Return, blocking progression after a mission win. Auto-fill a
+    // fixed short tag and return so the caller records it and the score screen advances.
+    // Full interactive entry is kept for non-iOS builds.
+    DBG_INFO("Input_Name: iOS auto-fill hall-of-fame name (CNC)");
+    {
+        const char* tag = "CNC";
+        int n = 0;
+        while (n < MAX_FAMENAME_LENGTH - 1 && tag[n] != '\0') {
+            str[n] = tag[n];
+            n++;
+        }
+        str[n] = '\0';
+    }
+    (void)xpos;
+    (void)ypos;
+    (void)pal;
+    return;
+#endif
     KeyNumType key = KN_NONE;
     KeyASCIIType ascii = KA_NONE;
     int index = 0;
@@ -1618,17 +1639,6 @@ void ScoreClass::Input_Name(char str[], int xpos, int ypos, char const pal[])
     ** Ready the hidpage so it can restore background under zoomed letters
     */
     PseudoSeenBuff->Blit(SysMemPage);
-
-    // iOS: the hall-of-fame name entry is a bespoke text field (NOT an EditClass gadget),
-    // so the on-screen keyboard is not raised automatically. Without it there is no way to
-    // type a name or send Return on a touch device, and the score screen hangs here on the
-    // first mission clear (a blank hall of fame means any score qualifies). Raise the soft
-    // keyboard for the duration; its Return arrives as KN_RETURN and ends the loop below.
-    // No-op off iOS.
-    DBG_INFO("Input_Name: raising soft keyboard for hall-of-fame entry");
-    if (Keyboard != nullptr) {
-        Keyboard->Show_Soft_Keyboard();
-    }
 
     do {
         Call_Back();
@@ -1699,10 +1709,6 @@ void ScoreClass::Input_Name(char str[], int xpos, int ypos, char const pal[])
 
         Frame_Limiter();
     } while (key != KN_RETURN && key != KN_KEYPAD_RETURN);
-
-    if (Keyboard != nullptr) {
-        Keyboard->Hide_Soft_Keyboard();
-    }
 }
 
 void Animate_Cursor(int pos, int ypos)
