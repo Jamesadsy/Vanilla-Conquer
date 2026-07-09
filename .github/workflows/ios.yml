@@ -144,6 +144,13 @@ jobs:
             echo "=== patching $plist ==="
             $PB -c "Delete :CFBundleIdentifier" "$plist" 2>/dev/null || true
             $PB -c "Add :CFBundleIdentifier string com.james.$app" "$plist"
+            # Build 1: home-screen display name. TD only -> "CnC TD"; leave RA1 (vanillara)
+            # untouched. Only CFBundleDisplayName changes; CFBundleExecutable stays "$app"
+            # (renaming the binary breaks launch/packaging).
+            if [ "$app" = "vanillatd" ]; then
+              $PB -c "Delete :CFBundleDisplayName" "$plist" 2>/dev/null || true
+              $PB -c "Add :CFBundleDisplayName string CnC TD" "$plist"
+            fi
             $PB -c "Delete :LSRequiresIPhoneOS" "$plist" 2>/dev/null || true
             $PB -c "Add :LSRequiresIPhoneOS bool true" "$plist"
             $PB -c "Delete :MinimumOSVersion" "$plist" 2>/dev/null || true

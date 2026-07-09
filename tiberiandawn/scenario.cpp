@@ -45,6 +45,7 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "debugstring.h" // Build 1: AUTOSAVE content-verification checkpoint
 #include "common/framelimit.h"
 
 extern int PreserveVQAScreen;
@@ -185,6 +186,40 @@ bool Start_Scenario(char* root, bool briefing)
     CCDebugString("C&C95 - About to call Options.Set.\n");
     Options.Set();
     CCDebugString("C&C95 - About to return from Start_Scenario.\n");
+
+    /*
+    **	Build 1 -- Per-side campaign autosave. Reuses the existing Save_Game path
+    **	(writes SAVEGAME.NNN into the writable user dir) to keep a reserved autosave
+    **	slot chosen by the current campaign side: GDI -> 990, Nod -> 991, so a GDI
+    **	mission never overwrites Nod's autosave and vice-versa. The reserved ids sit
+    **	far above any manual save (the save dialog only ever assigns the lowest free
+    **	number), so there is no collision. The load list already tags entries "(GDI)"/
+    **	"(NOD)" by house, so these show as "(GDI) Autosave" / "(NOD) Autosave".
+    **
+    **	Placed at the END of Start_Scenario: the earliest point where the scenario is
+    **	fully loaded (Read_Scenario complete, PlayerPtr valid), so Save_Game's
+    **	Code/Decode_All_Pointers run over a consistent state. Because a mission win
+    **	advances through Do_Win -> Start_Scenario, this one hook is BOTH the mission-
+    **	START write and the "resume after completion" write (start of the next
+    **	mission). Single-player campaign only; multiplayer/skirmish is skipped.
+    */
+    if (GameToPlay == GAME_NORMAL && PlayerPtr != NULL) {
+        HousesType side = PlayerPtr->Class->House;
+        if (side == HOUSE_GOOD || side == HOUSE_BAD) {
+            int autosave_id = (side == HOUSE_BAD) ? 991 : 990;
+            char autosave_descr[] = "Autosave";
+            if (Save_Game(autosave_id, autosave_descr)) {
+                DBG_INFO("AUTOSAVE: wrote per-side autosave (start/complete) id=%03d side=%s",
+                         autosave_id,
+                         (side == HOUSE_BAD) ? "NOD" : "GDI");
+            } else {
+                DBG_INFO("AUTOSAVE: per-side autosave FAILED id=%03d side=%s",
+                         autosave_id,
+                         (side == HOUSE_BAD) ? "NOD" : "GDI");
+            }
+        }
+    }
+
     return (true);
 }
 
