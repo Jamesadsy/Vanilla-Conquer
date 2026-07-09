@@ -59,6 +59,7 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "debugstring.h" // 4.2A: DBG_INFO content-verification checkpoint
 #include "common/irandom.h"
 #include <stdlib.h>
 #include <stdio.h>
@@ -721,6 +722,43 @@ void Keyboard_Process(KeyNumType& input)
         Map.SidebarClass::Scroll(false, -1);
         input = KN_NONE;
     }
+
+#ifdef SDL2_BUILD
+    /*
+    **	4.2A -- Controller D-pad Up/Down page the build sidebar.
+    **	When the sidebar is active, one D-pad press scrolls a whole visible page
+    **	(MAX_VISIBLE slots), reusing the same path as the on-screen scroll arrows
+    **	(SidebarClass::Scroll(up, -1)) so bounds/parity with the buttons are identical.
+    **	When the sidebar is NOT active, fall back to the control-group selection the
+    **	D-pad has always provided (Up = group 1, Down = group 3) so control groups are
+    **	never lost -- net cost when the sidebar is closed is zero. D-pad Left/Right are
+    **	untouched (still groups 4/2). The synthetic F15/F16 scancodes are emitted by
+    **	Handle_Controller_Button_Event; only the press edge matches (release carries
+    **	KN_RLSE_BIT), so a page/selection fires once per press.
+    */
+    if (key != 0 && key == KN_CTRL_DPAD_UP) {
+        if (Map.IsSidebarActive) {
+            for (int page = 0; page < SidebarClass::StripClass::MAX_VISIBLE; page++) {
+                Map.SidebarClass::Scroll(true, -1);
+            }
+            DBG_INFO("4.2A: D-pad Up -> sidebar page-up by MAX_VISIBLE");
+        } else {
+            Handle_Team(0, action);
+        }
+        input = KN_NONE;
+    }
+    if (key != 0 && key == KN_CTRL_DPAD_DOWN) {
+        if (Map.IsSidebarActive) {
+            for (int page = 0; page < SidebarClass::StripClass::MAX_VISIBLE; page++) {
+                Map.SidebarClass::Scroll(false, -1);
+            }
+            DBG_INFO("4.2A: D-pad Down -> sidebar page-down by MAX_VISIBLE");
+        } else {
+            Handle_Team(2, action);
+        }
+        input = KN_NONE;
+    }
+#endif
 
     /*
     **	Brings up the options dialog box.

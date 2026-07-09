@@ -47,6 +47,11 @@
 #include "function.h"
 #include "debugstring.h"
 #include "textblit.h"
+
+#if defined(__APPLE__)
+#include <TargetConditionals.h> // for TARGET_OS_IOS used by Input_Name below
+#endif
+
 #include "common/irandom.h"
 #include "common/framelimit.h"
 #include "common/settings.h"

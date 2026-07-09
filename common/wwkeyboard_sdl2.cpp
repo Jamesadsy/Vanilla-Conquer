@@ -607,16 +607,24 @@ void WWKeyboardClassSDL2::Handle_Controller_Button_Event(const SDL_ControllerBut
         scancode = SDL_SCANCODE_F;
         break;
     case SDL_CONTROLLER_BUTTON_DPAD_UP:
+        // 4.2A: was control-group 1 (scancode '1'). Now emit F15 == KN_CTRL_DPAD_UP.
+        // Keyboard_Process pages the sidebar up by MAX_VISIBLE when it is active, and
+        // otherwise falls back to control-group 1. Net cost when sidebar closed: zero.
         keyboardPress = true;
-        scancode = SDL_SCANCODE_1;
+        scancode = SDL_SCANCODE_F15;
+        TOUCHLOG("controller: D-pad Up -> F15 (sidebar page-up / group 1 fallback) (%s)",
+                 button.state == SDL_PRESSED ? "press" : "release");
         break;
     case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
         keyboardPress = true;
         scancode = SDL_SCANCODE_2;
         break;
     case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
+        // 4.2A: was control-group 3 (scancode '3'). Now emit F16 == KN_CTRL_DPAD_DOWN.
         keyboardPress = true;
-        scancode = SDL_SCANCODE_3;
+        scancode = SDL_SCANCODE_F16;
+        TOUCHLOG("controller: D-pad Down -> F16 (sidebar page-down / group 3 fallback) (%s)",
+                 button.state == SDL_PRESSED ? "press" : "release");
         break;
     case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
         keyboardPress = true;

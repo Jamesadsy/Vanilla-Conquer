@@ -852,6 +852,11 @@ typedef enum KeyNumType : unsigned short
     // never bound by default, so they cannot collide with real gameplay hotkeys.
     KN_CTRL_REPAIRSELL_CYCLE = SDL_SCANCODE_F13,
     KN_CTRL_SIDEBAR_TOGGLE = SDL_SCANCODE_F14,
+    // 4.2A: D-pad Up/Down page the build sidebar (by MAX_VISIBLE) when it is active.
+    // Like F13/F14, F15/F16 are never bound by default, so they cannot collide with
+    // real gameplay hotkeys. The gate + control-group fallback live in Keyboard_Process.
+    KN_CTRL_DPAD_UP = SDL_SCANCODE_F15,
+    KN_CTRL_DPAD_DOWN = SDL_SCANCODE_F16,
 #endif
 } KeyNumType;
 
