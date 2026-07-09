@@ -48,9 +48,13 @@
 #include "common/paths.h"
 #include "common/winasm.h"
 #include <time.h>
+#include "debugstring.h" // Exit fix: EXIT clean-shutdown checkpoint (DBG_INFO)
 
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
+#if TARGET_OS_IOS
+#include <unistd.h> // _exit() for the clean iOS exit (mirrors Generals SDL3Main.cpp)
+#endif
 #endif
 
 /****************************************
@@ -1294,9 +1298,19 @@ bool Select_Game(bool fade)
             */
             case SEL_EXIT:
 #if defined(__APPLE__) && TARGET_OS_IOS
-                // iOS: there is no supported way to quit or minimise an app, and Prog_End()
-                // simply blanks the screen and hangs (requiring a force-close). Make "Exit
-                // Game" a harmless no-op that returns to the main menu instead of quitting.
+                // iOS: confirm, then terminate cleanly by MIRRORING the Generals port
+                // (GeneralsMD/Code/Main/SDL3Main.cpp, end of main): graceful teardown, then
+                // _exit() -- NOT exit() -- so C++ global destructors are skipped. Running
+                // those on shutdown is what left the OLD path on a black screen: it tore the
+                // context down but never terminated the process. Generals proves clean self-
+                // termination works on this device with no Info.plist key.
+                if (WWMessageBox().Process("Are you sure you want to exit?", TXT_YES, TXT_NO) == 0) {
+                    DBG_INFO("EXIT: clean shutdown (Generals-style) invoked");
+                    Prog_End(NULL, false); // graceful teardown (Sound_End, free mouse/palette); non-fatal
+                    SDL_Quit();            // release SDL subsystems (mirrors Generals' SDL_Quit)
+                    _exit(0);              // immediate terminate; skips global dtors (mirrors Generals)
+                }
+                // CANCEL -> dismiss the dialog and return to the main menu.
                 display = true;
                 fade = true;
                 selection = SEL_NONE;
