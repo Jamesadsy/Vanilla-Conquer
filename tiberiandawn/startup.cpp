@@ -356,6 +356,101 @@ int DLL_Startup(const char* command_line_in)
 }
 #endif // REMASTER_BUILD
 
+#if defined(__APPLE__) && TARGET_OS_IOS
+#include <errno.h>
+#include <unistd.h>
+#include <string.h>
+#include <sys/time.h>
+// --- WO-005 throwaway local-network UNICAST spike. Remove after the entitlement decision. ---
+// Inert unless $HOME/Documents/vcnet_peer.txt exists and holds a peer IPv4 (one line, e.g. 192.168.1.42).
+// Logs to $HOME/Documents/vcnet.txt (visible in Files). Bounded (~8s) only when the peer file exists;
+// otherwise returns immediately. Socket headers come from common/sockets.h (via function.h), which is
+// unconditional of the NETWORKING flag (confirmed in the WO-005 read).
+static void VCNET_Probe(void)
+{
+    const char* home = getenv("HOME");
+    if (home == nullptr) { home = "."; }
+
+    char netlog[1200];
+    snprintf(netlog, sizeof(netlog), "%s/Documents/vcnet.txt", home);
+    char peerpath[1200];
+    snprintf(peerpath, sizeof(peerpath), "%s/Documents/vcnet_peer.txt", home);
+
+    FILE* pf = fopen(peerpath, "r");
+    if (pf == nullptr) {
+        FILE* lf = fopen(netlog, "a");
+        if (lf != nullptr) { fprintf(lf, "netprobe: no peer file, skip\n"); fclose(lf); }
+        return;
+    }
+
+    char peerip[64];
+    peerip[0] = '\0';
+    if (fgets(peerip, sizeof(peerip), pf) == nullptr) { peerip[0] = '\0'; }
+    fclose(pf);
+    for (int i = (int)strlen(peerip) - 1;
+         i >= 0 && (peerip[i] == '\n' || peerip[i] == '\r' || peerip[i] == ' ' || peerip[i] == '\t');
+         --i) {
+        peerip[i] = '\0';
+    }
+
+    FILE* lf = fopen(netlog, "a");
+    const int port = 51999;
+
+    int s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0) {
+        if (lf != nullptr) { fprintf(lf, "netprobe: socket() failed errno=%d\n", errno); fclose(lf); }
+        return;
+    }
+
+    struct sockaddr_in local;
+    memset(&local, 0, sizeof(local));
+    local.sin_family = AF_INET;
+    local.sin_addr.s_addr = htonl(INADDR_ANY);
+    local.sin_port = htons(port);
+    int b = bind(s, (struct sockaddr*)&local, sizeof(local));
+    if (lf != nullptr) {
+        fprintf(lf, "netprobe: bind %s errno=%d\n", (b == 0) ? "ok" : "FAIL", (b == 0) ? 0 : errno);
+    }
+
+    struct timeval tv;
+    tv.tv_sec = 1;
+    tv.tv_usec = 0;
+    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    struct sockaddr_in peer;
+    memset(&peer, 0, sizeof(peer));
+    peer.sin_family = AF_INET;
+    peer.sin_port = htons(port);
+    peer.sin_addr.s_addr = inet_addr(peerip);
+    if (lf != nullptr) { fprintf(lf, "netprobe: peer=%s\n", peerip); }
+
+    const char* msg = "VCPROBE";
+    for (int i = 0; i < 8; ++i) {
+        ssize_t sent = sendto(s, msg, 7, 0, (struct sockaddr*)&peer, sizeof(peer));
+        if (lf != nullptr) {
+            fprintf(lf, "netprobe: sent %ld errno=%d\n", (long)sent, (sent < 0) ? errno : 0);
+            fflush(lf);
+        }
+
+        char buf[64];
+        struct sockaddr_in from;
+        socklen_t fl = sizeof(from);
+        ssize_t got = recvfrom(s, buf, sizeof(buf) - 1, 0, (struct sockaddr*)&from, &fl);
+        if (got > 0) {
+            buf[got] = '\0';
+            if (lf != nullptr) { fprintf(lf, "netprobe: recv %ld from %s\n", (long)got, inet_ntoa(from.sin_addr)); }
+        } else {
+            if (lf != nullptr) { fprintf(lf, "netprobe: recv none errno=%d\n", errno); }
+        }
+        if (lf != nullptr) { fflush(lf); }
+    }
+
+    close(s);
+    if (lf != nullptr) { fflush(lf); fclose(lf); }
+}
+// --- end WO-005 spike ---
+#endif
+
 int main(int argc, char** argv)
 {
     UtfArgs args(argc, argv);
@@ -383,6 +478,7 @@ int main(int argc, char** argv)
         VCDBG("engine log routed to vcengine.txt");
     }
     VCDBG_Data_Audit(args.ArgV[0]);
+    VCNET_Probe();
 #endif
 
     CCDebugString("C&C95 - Starting up.\n");
