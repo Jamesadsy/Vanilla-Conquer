@@ -178,8 +178,6 @@ jobs:
             $PB -c "Add :UISupportedInterfaceOrientations~ipad:1 string UIInterfaceOrientationLandscapeRight" "$plist"
             $PB -c "Delete :UIRequiresFullScreen" "$plist" 2>/dev/null || true
             $PB -c "Add :UIRequiresFullScreen bool true" "$plist"
-            $PB -c "Delete :NSLocalNetworkUsageDescription" "$plist" 2>/dev/null || true
-            $PB -c "Add :NSLocalNetworkUsageDescription string This lets the game find and connect to other players on your local WiFi network." "$plist"
             echo "--- result ---"
             cat "$plist"
           done
