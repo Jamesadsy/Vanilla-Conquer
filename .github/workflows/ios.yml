@@ -184,11 +184,17 @@ jobs:
       - name: Embed app icon
         run: |
           PB=/usr/libexec/PlistBuddy
-          SRC="iOS/icon-1024.png"
-          if [ ! -f "$SRC" ]; then
-            echo "::error::icon source $SRC not found"; exit 1
-          fi
           for app in vanillatd vanillara; do
+            # WO-008 completion: per-app icon source. TD keeps icon-1024.png;
+            # RA1 (vanillara) uses its own committed asset icon-ra-1024.png.
+            if [ "$app" = "vanillara" ]; then
+              SRC="iOS/icon-ra-1024.png"
+            else
+              SRC="iOS/icon-1024.png"
+            fi
+            if [ ! -f "$SRC" ]; then
+              echo "::error::icon source $SRC not found"; exit 1
+            fi
             bundle="build-ios/$app.app"
             plist="$bundle/Info.plist"
             sips -z 120 120 "$SRC" --out "$bundle/AppIcon60x60@2x.png"

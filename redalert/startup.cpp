@@ -34,6 +34,34 @@
  *   main -- Initial startup routine (preps library systems).                                  *
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
+/*
+** iOS: SDL requires ownership of main(). On iOS a window can only be created
+** inside a running UIKit application (UIApplicationMain). Including SDL_main.h
+** renames our main() to SDL_main(); the real main() is provided by the SDL2main
+** static library, which starts the UIKit app machinery and then calls SDL_main()
+** (our code) from within the app lifecycle. Without this, SDL_CreateWindow fails
+** with "Application didn't initialize properly, did you include SDL_main.h in
+** the file containing your main() function?".
+**
+** CRITICAL: this include MUST be the first include in this file. function.h's
+** include tree pulls in common/wwkeyboard.h, which does:
+**     #define SDL_MAIN_HANDLED
+**     #include <SDL.h>          (SDL.h includes SDL_main.h first)
+** If that runs first, SDL_main.h is consumed in "handled" mode (no rename) and
+** its include guard makes any later include of it a no-op - silently disabling
+** this fix. Being first, we process SDL_main.h in rename mode; the
+** '#define main SDL_main' persists for the whole file, and wwkeyboard.h's later
+** include harmlessly hits the include guard instead.
+** Desktop platforms don't need this, so it is guarded to iOS only.
+** (Mirror of the proven TiberianDawn startup.cpp patch. WO-008.)
+*/
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#if TARGET_OS_IOS
+#include <SDL_main.h>
+#endif
+#endif
+
 #include "function.h"
 #include "language.h"
 #include "settings.h"
@@ -275,10 +303,60 @@ int DLL_Startup(const char* command_line_in)
 }
 #endif //REMASTER_BUILD
 
+/*
+** iOS diagnostic logging (RA1's own copy, ported from the proven TiberianDawn
+** startup.cpp logger - WO-008 completion). Appends timestamped breadcrumbs to a
+** plain text file in the app's sandbox Documents directory, visible in the Files
+** app:  On My iPhone -> (RA app) -> vcdbg.txt
+** 'static' (internal linkage) so it cannot collide at link time with the logger
+** in common/video_sdl2.cpp - exactly as in TD. No-op on other platforms.
+** WWDebugString/os_log is SUPPRESSED for sideloaded apps; this file logger is the
+** only on-device boot diagnostic.
+*/
+#if defined(__APPLE__) && TARGET_OS_IOS
+#include <cstdio>
+#include <cstdarg>
+#include <cstdlib>
+#include <ctime>
+static void VCDBG_write(const char* fmt, ...)
+{
+    const char* home = getenv("HOME");
+    if (home == nullptr) {
+        home = ".";
+    }
+    char path[1200];
+    snprintf(path, sizeof(path), "%s/Documents/vcdbg.txt", home);
+    FILE* f = fopen(path, "a");
+    if (f == nullptr) {
+        return;
+    }
+    /* timestamp each line so repeated launches are distinguishable */
+    time_t t = time(nullptr);
+    struct tm* lt = localtime(&t);
+    char ts[32];
+    if (lt) {
+        strftime(ts, sizeof(ts), "%H:%M:%S", lt);
+        fprintf(f, "[%s] ", ts);
+    }
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(f, fmt, args);
+    va_end(args);
+    fputc('\n', f);
+    fflush(f);
+    fclose(f);
+}
+#define VCDBG(fmt, ...) VCDBG_write(fmt, ##__VA_ARGS__)
+#else
+#define VCDBG(fmt, ...) ((void)0)
+#endif
+
 int main(int argc, char* argv[])
 {
     UtfArgs args(argc, argv);
     WWDebugString("RA95 - Starting up.\n");
+    WWDebugString("RA1 boot: startup reached\n"); // WO-008 greppable boot marker (content-verify string)
+    VCDBG("RA1 boot: startup reached");
 
     if (Ram_Free(MEM_NORMAL) < 7000000) {
         printf(TEXT_NO_RAM);
@@ -291,8 +369,10 @@ int main(int argc, char* argv[])
     */
     Paths.Init("vanillara", CONFIG_FILE_NAME, "REDALERT.MIX", args.ArgV[0]);
     CDFileClass::Refresh_Search_Drives();
+    VCDBG("Paths.Init + Refresh_Search_Drives done");
 
     if (Parse_Command_Line(args.ArgC, args.ArgV)) {
+        VCDBG("Parse_Command_Line true");
 
         WinTimerClass::Init(60);
 
@@ -359,8 +439,10 @@ int main(int argc, char* argv[])
             MessageBoxA(MainWindow, TEXT_VIDEO_ERROR, TEXT_SHORT_TITLE, MB_ICONEXCLAMATION | MB_OK);
 #endif
             // if (Palette) delete Palette;
+            VCDBG("Set_Video_Mode FAILED, exiting");
             return (EXIT_FAILURE);
         }
+        VCDBG("video mode set OK");
 
 #ifdef REMASTER_BUILD // ST - 1/3/2019 2:11PM
 
@@ -470,6 +552,7 @@ int main(int argc, char* argv[])
 
         Memory_Error_Exit = Print_Error_End_Exit;
 
+        VCDBG("=== calling Main_Game ===");
         Main_Game(argc, argv);
 
         if (RunningAsDLL) { // PG
@@ -517,6 +600,7 @@ int main(int argc, char* argv[])
         return (EXIT_SUCCESS);
     }
 
+    VCDBG("Parse_Command_Line false, exiting");
     return (EXIT_SUCCESS);
 }
 
