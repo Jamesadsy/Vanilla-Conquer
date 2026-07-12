@@ -31,6 +31,18 @@ void Debug_String_File(const char* file);
 #define Debug_String_File(file)                       ((void)0)
 #endif
 
+/*
+** WO-009: runtime log on/off switch. Independent of the compile-time logging gate
+** above. Checked ONCE at boot (a function-local static, not a per-write cost): if the
+** literal lowercase flag file $HOME/Documents/vclog_off.txt is present, the common/
+** FILE loggers short-circuit. Declared UNCONDITIONALLY (outside the _DEBUG /
+** VANILLA_LOG_ENABLE gate) because the SDL file loggers that call it
+** (common/wwkeyboard_sdl2.cpp TOUCHLOG, common/video_sdl2.cpp) are gated on
+** __APPLE__/TARGET_OS_IOS, not on the logging macro. Lives in common/ so BOTH games
+** inherit it. Returns true when logging should be suppressed. See debugstring.cpp.
+*/
+bool Vanilla_Log_Suppressed(void);
+
 /* Default to debug logging */
 #ifndef LOGGING_LEVEL
 #define LOGGING_LEVEL 5

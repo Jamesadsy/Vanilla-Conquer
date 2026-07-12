@@ -18,6 +18,7 @@
 #include "video.h"
 #include "sdl_keymap.h"
 #include "settings.h"
+#include "debugstring.h" // WO-009: Vanilla_Log_Suppressed() runtime log gate
 #include <cmath>
 #include <SDL.h>
 
@@ -47,6 +48,10 @@ void Set_Touch_Position(float nx, float ny);
 #include <ctime>
 static void TOUCHLOG_write(const char* fmt, ...)
 {
+    /* WO-009: runtime kill-switch (vclog_off.txt). Stops vctouch.txt; vcdbg.txt unaffected. */
+    if (Vanilla_Log_Suppressed()) {
+        return;
+    }
     const char* home = getenv("HOME");
     if (home == nullptr) {
         home = ".";

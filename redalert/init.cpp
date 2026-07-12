@@ -61,6 +61,15 @@
 #include "msgbox.h"
 #include "loaddlg.h"
 
+// WO-012: RA1 clean-exit parity. _exit() lives in <unistd.h>; the iOS guard needs
+// TARGET_OS_IOS from <TargetConditionals.h>. Mirrors tiberiandawn/init.cpp.
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#if TARGET_OS_IOS
+#include <unistd.h> // _exit() for the clean iOS exit (mirrors Generals SDL3Main.cpp)
+#endif
+#endif
+
 #ifdef NETWORKING
 #include "wsproto.h"
 #include "wspudp.h"
@@ -1005,9 +1014,30 @@ bool Select_Game(bool fade)
             **	Exit to DOS.
             */
             case SEL_EXIT:
+#if defined(__APPLE__) && TARGET_OS_IOS
+                // WO-012 'ra-exit:' -- RA1 clean-exit parity with TD (tiberiandawn/init.cpp
+                // SEL_EXIT). RA1's ReadyToQuit message-loop handshake is compiled out on the
+                // iOS/SDL path, so simply returning false leaves the app on a black screen
+                // (the "weird thing"). Mirror the Generals port
+                // (GeneralsMD/Code/Main/SDL3Main.cpp): confirm, graceful teardown, then _exit()
+                // -- NOT exit() -- so C++ global destructors are skipped. Running those dtors on
+                // the torn-down memory manager is what SIGSEGVs (the exact TD trap).
+                if (WWMessageBox().Process("Are you sure you want to exit?", TXT_YES, TXT_NO) == 0) {
+                    DBG_INFO("ra-exit: clean shutdown (Generals-style) invoked");
+                    Prog_End(NULL, false); // graceful teardown (Sound_End, free mouse); non-fatal
+                    SDL_Quit();            // release SDL subsystems (mirrors Generals' SDL_Quit)
+                    _exit(0);              // immediate terminate; skips global dtors (mirrors Generals)
+                }
+                // CANCEL -> dismiss the dialog and return to the main menu.
+                display = true;
+                fade = true;
+                selection = SEL_NONE;
+                break;
+#else
                 Theme.Fade_Out();
                 BlackPalette.Set(FADE_PALETTE_SLOW);
                 return (false);
+#endif
 
             /*
             **	Display the hall of fame.

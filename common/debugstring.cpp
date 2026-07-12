@@ -47,6 +47,33 @@ public:
     FILE* File;
 } DebugState;
 
+/*
+ * WO-009 'logtoggle:' -- runtime log on/off. Checked ONCE (function-local static),
+ * so the runtime cost is a single boolean, never a per-write file probe. If the
+ * literal lowercase flag file $HOME/Documents/vclog_off.txt exists at first check,
+ * the common/ FILE loggers are suppressed. The 'logtoggle:' string below is the
+ * greppable content-verification checkpoint; it is emitted once to stderr (which is
+ * suppressed on sideloaded iOS) purely so the literal lands in BOTH game binaries.
+ * Placed in common/ so Tiberian Dawn and Red Alert both inherit the switch.
+ */
+bool Vanilla_Log_Suppressed(void)
+{
+    static int suppressed = -1;
+    if (suppressed < 0) {
+        const char* home = getenv("HOME");
+        char path[1200];
+        snprintf(path, sizeof(path), "%s/Documents/vclog_off.txt", home != nullptr ? home : ".");
+        FILE* f = fopen(path, "r");
+        suppressed = (f != nullptr) ? 1 : 0;
+        if (f != nullptr) {
+            fclose(f);
+        }
+        fprintf(stderr, "logtoggle: common loggers %s\n", suppressed ? "SUPPRESSED (vclog_off.txt present)" : "active");
+        fflush(stderr);
+    }
+    return suppressed == 1;
+}
+
 /**
  * Main log function, intended to be used from behind macros that pass in file and line details.
  */
@@ -54,6 +81,11 @@ void Debug_String_Log(unsigned level, const char* file, int line, const char* fm
 {
     static const char* levels[] = {"NONE", "FATAL", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"};
     assert(level <= 6);
+
+    /* WO-009: runtime kill-switch for the common/ engine logger (vcengine.txt + stderr). */
+    if (Vanilla_Log_Suppressed()) {
+        return;
+    }
 
     /* If we have a file pointer set we are logging to a file */
     if (DebugState.File != nullptr) {

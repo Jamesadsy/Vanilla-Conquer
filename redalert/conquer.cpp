@@ -3205,7 +3205,14 @@ int VQ_Call_Back(unsigned char*, int)
 #endif
     Frame_Limiter();
 
-    if ((BreakoutAllowed || Debug_Flag) && key == KN_ESC) {
+    // WO-011 'ra-fmvskip:' -- RA1 movie/intro skip parity with TD. RA1 originally broke
+    // only on KN_ESC; the iOS touch layer delivers a long-press as KN_RMOUSE via the shared
+    // common/ keyboard (RA1 receives it too -- cf. menus.cpp/scroll.cpp), so add KN_RMOUSE as
+    // an equivalent skip key. Mirrors TD's FMV-skip pattern (VQ_Call_Back break on
+    // KN_ESC || KN_RMOUSE). VQ_Call_Back is RA1's single movie DrawerCallback (init.cpp:1270),
+    // so every VQA movie (intro / mission FMV / briefing) inherits this one clause.
+    if ((BreakoutAllowed || Debug_Flag) && (key == KN_ESC || key == KN_RMOUSE)) {
+        DBG_INFO("ra-fmvskip: movie skipped (key=%d)", key);
         Keyboard->Clear();
         Brokeout = true;
         return (true);
@@ -4086,7 +4093,7 @@ bool Force_CD_Available(int cd)
 #endif
 
 #ifdef FRENCH
-                sprintf(buffer, "InsŠrez le %s", _cd_name[cd]);
+                sprintf(buffer, "Insï¿½rez le %s", _cd_name[cd]);
 #else
 #ifdef GERMAN
                 sprintf(buffer, "Bitte %s", _cd_name[cd]);
@@ -4097,7 +4104,7 @@ bool Force_CD_Available(int cd)
             } else {
 #ifdef DVD
 #ifdef FRENCH
-                sprintf(buffer, "InsŠrez le %s", _cd_name[4]);
+                sprintf(buffer, "Insï¿½rez le %s", _cd_name[4]);
 #else
 #ifdef GERMAN
                 sprintf(buffer, "Bitte %s", _cd_name[4]);
