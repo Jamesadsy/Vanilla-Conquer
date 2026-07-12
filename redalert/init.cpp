@@ -2151,6 +2151,27 @@ static void Init_Expansion_Files(void)
             break;
         }
     }
+
+    /*
+    ** iOS/POSIX FIX (ra-expmount): the SC*.MIX / Ss*.MIX glob above does not resolve on this
+    ** platform. Init_Expansion_Files builds Windows '\'-separated scan paths, but the POSIX
+    ** Find_First (common/file_posix.cpp) splits only on '/', so it falls back to opendir(".")
+    ** with an unmatchable filter and mounts nothing. Mount the known expansion containers
+    ** explicitly by name -- the same pattern the core MIX use (init.cpp:2300/2325) -- so the
+    ** Counterstrike/Aftermath campaign scenarios packed inside them become Is_Available().
+    */
+    {
+        CCFileClass csfile("counterstrike.MIX");
+        if (csfile.Is_Available()) {
+            new MFCD("counterstrike.MIX", &FastKey);
+            DBG_INFO("ra-expmount: mounted counterstrike.MIX");
+        }
+        CCFileClass amfile("aftermath.MIX");
+        if (amfile.Is_Available()) {
+            new MFCD("aftermath.MIX", &FastKey);
+            DBG_INFO("ra-expmount: mounted aftermath.MIX");
+        }
+    }
 }
 
 /***********************************************************************************************
