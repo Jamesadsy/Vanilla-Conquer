@@ -418,6 +418,35 @@ bool Start_Scenario(char* name, bool briefing)
     */
     Options.Set();
 
+    /*
+    **	Build 1 -- Per-side campaign autosave (mirror of TD; RA derives side from the
+    **	HOUSEF bitmask because RA has no clean numeric side enum). Reuses the Save_Game
+    **	path (SAVEGAME.NNN into the writable user dir). Reserved ids 990 = Allies /
+    **	991 = Soviet sit far above any manual save (the save dialog assigns the lowest
+    **	free number), so there is no collision. The load list tags entries "(Allies)"/
+    **	"(Soviet)" by house, so these show as "(Allies) Autosave" / "(Soviet) Autosave".
+    **	Placed at the END of Start_Scenario: scenario fully loaded (Read_Scenario done,
+    **	PlayerPtr valid). A mission win advances through Start_Scenario for the next
+    **	mission, so this single hook is BOTH the mission-START and the post-completion
+    **	resume write. Single-player campaign only; skip if the house is neither side.
+    */
+    if (Session.Type == GAME_NORMAL && PlayerPtr != NULL) {
+        HousesType house = PlayerPtr->Class->House;
+        bool is_soviet = ((1L << house) & HOUSEF_SOVIET) != 0;
+        bool is_allied = ((1L << house) & HOUSEF_ALLIES) != 0;
+        if (is_soviet || is_allied) {
+            int autosave_id = is_soviet ? 991 : 990;
+            char autosave_descr[] = "Autosave";
+            if (Save_Game(autosave_id, autosave_descr)) {
+                DBG_INFO("ra-autosave: wrote per-side autosave (start/complete) id=%03d side=%s",
+                         autosave_id, is_soviet ? "SOVIET" : "ALLIES");
+            } else {
+                DBG_INFO("ra-autosave: per-side autosave FAILED id=%03d side=%s",
+                         autosave_id, is_soviet ? "SOVIET" : "ALLIES");
+            }
+        }
+    }
+
     return (true);
 }
 
