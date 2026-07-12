@@ -205,6 +205,7 @@ public:
     COORDINATE Closest_Free_Spot(COORDINATE coord, bool any = false) const;
     void Sell_Mode_Control(int control);
     void Repair_Mode_Control(int control);
+    void Repair_Sell_Cycle(void); // WO-014: controller Square one-button repair->sell->off (ported from TD)
 
     virtual void Flag_Cell(CELL cell);
     bool Is_Cell_Flagged(CELL cell) const

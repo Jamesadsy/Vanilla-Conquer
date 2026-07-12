@@ -746,6 +746,65 @@ void Keyboard_Process(KeyNumType& input)
         input = KN_NONE;
     }
 
+#ifdef SDL2_BUILD
+    /*
+    **	WO-014 'ra-ctrl:' -- RA1 controller button/D-pad parity with TD
+    **	(tiberiandawn/conquer.cpp Keyboard_Process). The synthetic scancodes are emitted by the
+    **	shared common/wwkeyboard_sdl2.cpp Handle_Controller_Button_Event (RA inherits the EMIT
+    **	side); only the CONSUMER side is per-game, which RA previously lacked. Mirrors TD 1:1.
+    **	Start is intentionally NOT wired here: it emits SDL_SCANCODE_ESCAPE, which RA's
+    **	KeyOption1/KeyOption2 handler below already consumes -> the in-game menu is inherited.
+    */
+
+    /*
+    **	Controller (Square): cycle repair -> sell -> off with a single button.
+    */
+    if (key != 0 && key == KN_CTRL_REPAIRSELL_CYCLE) {
+        DBG_INFO("ra-ctrl: Square -> repair/sell cycle");
+        Map.Repair_Sell_Cycle();
+        input = KN_NONE;
+    }
+
+    /*
+    **	Controller (Triangle): toggle the build sidebar on/off (fullscreen tactical view).
+    */
+    if (key != 0 && key == KN_CTRL_SIDEBAR_TOGGLE) {
+        DBG_INFO("ra-ctrl: Triangle -> sidebar toggle");
+        Map.SidebarClass::Activate(-1);
+        input = KN_NONE;
+    }
+
+    /*
+    **	Controller D-pad Up/Down page the build sidebar when it is active (one press scrolls a
+    **	whole visible page, reusing the on-screen scroll-arrow path SidebarClass::Scroll(up,-1));
+    **	when the sidebar is closed they fall back to the control-group selection the D-pad has
+    **	always provided (Up = group 1, Down = group 3), so control groups are never lost.
+    **	Mirrors TD's 4.2A behaviour.
+    */
+    if (key != 0 && key == KN_CTRL_DPAD_UP) {
+        if (Map.IsSidebarActive) {
+            for (int page = 0; page < SidebarClass::StripClass::MAX_VISIBLE; page++) {
+                Map.SidebarClass::Scroll(true, -1);
+            }
+            DBG_INFO("ra-ctrl: D-pad Up -> sidebar page-up");
+        } else {
+            Handle_Team(0, action);
+        }
+        input = KN_NONE;
+    }
+    if (key != 0 && key == KN_CTRL_DPAD_DOWN) {
+        if (Map.IsSidebarActive) {
+            for (int page = 0; page < SidebarClass::StripClass::MAX_VISIBLE; page++) {
+                Map.SidebarClass::Scroll(false, -1);
+            }
+            DBG_INFO("ra-ctrl: D-pad Down -> sidebar page-down");
+        } else {
+            Handle_Team(2, action);
+        }
+        input = KN_NONE;
+    }
+#endif
+
     /*
     **	Brings up the options dialog box.
     */
