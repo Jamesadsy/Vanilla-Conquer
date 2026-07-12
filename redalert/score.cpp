@@ -45,6 +45,9 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#if defined(__APPLE__)
+#include <TargetConditionals.h> // WO-013: for TARGET_OS_IOS used by Input_Name below (mirrors TD score.cpp)
+#endif
 #include "interpal.h"
 #include "common/framelimit.h"
 #include "common/wsa.h"
@@ -1257,6 +1260,28 @@ void ScoreClass::Count_Up_Print(const char* str, int percent, int maxval, int xp
  *=============================================================================================*/
 void ScoreClass::Input_Name(char str[], int xpos, int ypos, char const pal[])
 {
+#if defined(__APPLE__) && TARGET_OS_IOS
+    // WO-013: iOS name-entry auto-fill (ported from tiberiandawn/score.cpp Input_Name). This
+    // fullscreen (non-gadget) "Top Scores" screen can't reliably raise the on-screen keyboard, so
+    // interactive entry would hang after a mission win with no way to type a name or press Return,
+    // blocking progression. Auto-fill a fixed tag ("CNC", matching TD) into the SAME name buffer the
+    // manual loop fills, then return so the caller records it and the score screen advances. Full
+    // interactive entry is kept for non-iOS builds.
+    DBG_INFO("ra-score: iOS auto-fill hall-of-fame name (CNC)");
+    {
+        const char* tag = "CNC";
+        int n = 0;
+        while (n < MAX_FAMENAME_LENGTH - 1 && tag[n] != '\0') {
+            str[n] = tag[n];
+            n++;
+        }
+        str[n] = '\0';
+    }
+    (void)xpos;
+    (void)ypos;
+    (void)pal;
+    return;
+#endif
     int key = 0;
     int ascii = 0;
     int index = 0;
