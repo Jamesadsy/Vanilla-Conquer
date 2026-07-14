@@ -116,7 +116,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_CXX_FLAGS="-DVANILLA_LOG_ENABLE" \
             -DMAKE_BUNDLE=OFF \
-            -DNETWORKING=OFF \
+            -DNETWORKING=ON \
             -DBUILD_VANILLATD=ON \
             -DBUILD_VANILLARA=ON \
             -DSDL2=ON \
@@ -150,6 +150,8 @@ jobs:
             if [ "$app" = "vanillatd" ]; then
               $PB -c "Delete :CFBundleDisplayName" "$plist" 2>/dev/null || true
               $PB -c "Add :CFBundleDisplayName string CnC TD" "$plist"
+              $PB -c "Delete :NSLocalNetworkUsageDescription" "$plist" 2>/dev/null || true
+              $PB -c "Add :NSLocalNetworkUsageDescription string CnC TD uses your local network to find and join local multiplayer games." "$plist"
             elif [ "$app" = "vanillara" ]; then
               $PB -c "Delete :CFBundleDisplayName" "$plist" 2>/dev/null || true
               $PB -c "Add :CFBundleDisplayName string CnC RA" "$plist"
