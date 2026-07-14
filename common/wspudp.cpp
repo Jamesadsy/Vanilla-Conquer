@@ -165,19 +165,24 @@ bool UDPInterfaceClass::Open_Socket(SOCKET)
     */
     Socket = socket(AF_INET, SOCK_DGRAM, 0);
     if (Socket == INVALID_SOCKET) {
+        DBG_LOG("UDP_DIAG socket create failed: error=%d", LastSocketError);
         return (false);
     }
+    DBG_LOG("UDP_DIAG socket create succeeded");
 
     /*
     ** Broadcast to all local networks.
     */
     int yes = 1;
     if (setsockopt(Socket, SOL_SOCKET, SO_BROADCAST, (char*)&yes, sizeof(yes)) < 0) {
+        DBG_LOG("UDP_DIAG SO_BROADCAST failed: error=%d", LastSocketError);
         DBG_LOG("setsockopt failed: %s", strerror(errno));
         Close_Socket();
         return (false);
     }
+    DBG_LOG("UDP_DIAG SO_BROADCAST succeeded");
     Set_Broadcast_Address((void*)"255.255.255.255");
+    DBG_LOG("UDP_DIAG broadcast address selected: 255.255.255.255");
 
     /*
     ** Sets the socket as nonblocking.
@@ -198,9 +203,11 @@ bool UDPInterfaceClass::Open_Socket(SOCKET)
     addr.sin_addr.s_addr = hton32(INADDR_ANY);
 
     if (bind(Socket, (sockaddr*)&addr, sizeof(addr)) == SOCKET_ERROR) {
+        DBG_LOG("UDP_DIAG bind failed: port=%d error=%d", PlanetWestwoodPortNumber, LastSocketError);
         Close_Socket();
         return (false);
     }
+    DBG_LOG("UDP_DIAG bind succeeded: port=%d", PlanetWestwoodPortNumber);
 
     /*
     ** Clear out any old local addresses from the local address list.
@@ -240,6 +247,11 @@ bool UDPInterfaceClass::Open_Socket(SOCKET)
                 (address & 0xff00) >> 8,
                 (address & 0xff0000) >> 16,
                 (address & 0xff000000) >> 24);
+        DBG_LOG("UDP_DIAG local address selected: %d.%d.%d.%d",
+                address & 0xff,
+                (address & 0xff00) >> 8,
+                (address & 0xff0000) >> 16,
+                (address & 0xff000000) >> 24);
         fprintf(stderr, temp);
 
         unsigned char* a = new unsigned char[4];
@@ -258,6 +270,7 @@ bool UDPInterfaceClass::Open_Socket(SOCKET)
             struct in_addr* tmp_addr = &((struct sockaddr_in*)ifa->ifa_addr)->sin_addr;
             char buf[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, tmp_addr, buf, INET_ADDRSTRLEN);
+            DBG_LOG("UDP_DIAG local address selected: %s", buf);
             fprintf(stderr, "RA95: Found local address: %s\n", buf);
 
             unsigned char* a = new unsigned char[4];
@@ -269,6 +282,7 @@ bool UDPInterfaceClass::Open_Socket(SOCKET)
             } else {
                 tmp_addr = &((struct sockaddr_in*)ifa->ifa_broadaddr)->sin_addr;
                 inet_ntop(AF_INET, tmp_addr, buf, INET_ADDRSTRLEN);
+                DBG_LOG("UDP_DIAG broadcast address selected: %s", buf);
                 fprintf(stderr, "RA95: Using broadcast address of: %s\n", buf);
                 Set_Broadcast_Address(buf);
             }
@@ -332,6 +346,9 @@ void UDPInterfaceClass::Broadcast(void* buffer, int buffer_len)
         */
         memset(packet->Address, 0, sizeof(packet->Address));
         memcpy(packet->Address + 4, BroadcastAddresses[i], 4);
+        char address[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, packet->Address + 4, address, INET_ADDRSTRLEN);
+        DBG_LOG("UDP_DIAG broadcast queued: destination=%s length=%d", address, buffer_len);
 
         /*
         ** Add it to our out list.
@@ -523,12 +540,16 @@ int UDPInterfaceClass::Message_Handler()
                 */
                 if (rc <= 0) {
                     if (rc < 0 && LastSocketError != WSAEWOULDBLOCK) {
+                        DBG_LOG("UDP_DIAG recvfrom failed: error=%d", LastSocketError);
                         Clear_Socket_Error(Socket);
                     }
 
                     break;
                 } else {
                     bool remote = true;
+                    char address[INET_ADDRSTRLEN];
+                    inet_ntop(AF_INET, &addr.sin_addr, address, INET_ADDRSTRLEN);
+                    DBG_LOG("UDP_DIAG recvfrom succeeded: source=%s length=%d", address, rc);
 
                     /*
                     ** Make sure this packet didn't come from us. If it did then throw it away.
@@ -550,6 +571,9 @@ int UDPInterfaceClass::Message_Handler()
                         memset(packet->Address, 0, sizeof(packet->Address));
                         memcpy(packet->Address + 4, &addr.sin_addr.s_addr, 4);
                         InBuffers.Add(packet);
+                        DBG_LOG("UDP_DIAG inbound packet queued: source=%s length=%d", address, rc);
+                    } else {
+                        DBG_LOG("UDP_DIAG local source suppressed: source=%s length=%d", address, rc);
                     }
                 }
             }
@@ -574,6 +598,9 @@ int UDPInterfaceClass::Message_Handler()
                 addr.sin_family = AF_INET;
                 addr.sin_port = hton16(PlanetWestwoodPortNumber);
                 memcpy(&addr.sin_addr.s_addr, packet->Address + 4, 4);
+                char address[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, &addr.sin_addr, address, INET_ADDRSTRLEN);
+                DBG_LOG("UDP_DIAG sendto attempt: destination=%s length=%d", address, packet->BufferLen);
 
                 /*
                 ** Send it.
@@ -584,11 +611,19 @@ int UDPInterfaceClass::Message_Handler()
 
                 if (rc == SOCKET_ERROR) {
                     if (LastSocketError != WSAEWOULDBLOCK) {
+                        DBG_LOG("UDP_DIAG sendto failed: destination=%s length=%d error=%d",
+                                address,
+                                packet->BufferLen,
+                                LastSocketError);
                         Clear_Socket_Error(Socket);
                     }
 
                     break;
                 } else {
+                    DBG_LOG("UDP_DIAG sendto succeeded: destination=%s length=%d sent=%d",
+                            address,
+                            packet->BufferLen,
+                            rc);
                     /*
                     ** Delete the sent packet.
                     */
@@ -598,6 +633,7 @@ int UDPInterfaceClass::Message_Handler()
             }
         }
     } else {
+        DBG_LOG("UDP_DIAG select failed: error=%d", LastSocketError);
         Clear_Socket_Error(Socket);
     }
 

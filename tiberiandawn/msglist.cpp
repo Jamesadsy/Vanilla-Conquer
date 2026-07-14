@@ -130,6 +130,10 @@ void MessageListClass::Init(int x, int y, int max_msg, int maxchars, int height)
     TextLabelClass* txtlabel;
     int i;
 
+    if (EditLabel && Keyboard) {
+        Keyboard->Hide_Soft_Keyboard();
+    }
+
     /*------------------------------------------------------------------------
     Remove every entry in the list
     ------------------------------------------------------------------------*/
@@ -477,6 +481,10 @@ TextLabelClass* MessageListClass::Add_Edit(int color, TextPrintType style, char*
     else
         EditBuf = NULL;
 
+    if (EditLabel && Keyboard) {
+        Keyboard->Show_Soft_Keyboard();
+    }
+
     return (EditLabel);
 }
 
@@ -543,6 +551,9 @@ int MessageListClass::Manage(void)
             values.
             ..................................................................*/
             if (txtlabel == EditLabel) {
+                if (Keyboard) {
+                    Keyboard->Hide_Soft_Keyboard();
+                }
                 EditLabel = 0;
                 EditBuf = 0;
             }
