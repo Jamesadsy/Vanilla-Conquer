@@ -221,7 +221,7 @@ if(BUILD_VANILLATD)
         enable_language(OBJCXX)
         find_library(TD_NETWORK_FRAMEWORK Network REQUIRED)
         target_sources(VanillaTD PRIVATE bonjour_discovery_ios.mm)
-        target_link_libraries(VanillaTD PRIVATE ${TD_NETWORK_FRAMEWORK})
+        target_link_libraries(VanillaTD ${TD_NETWORK_FRAMEWORK})
     endif()
 
     if(MAKE_BUNDLE)
