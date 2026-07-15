@@ -137,6 +137,7 @@ static void Clear_Game_List(ListClass* gamelist);
 static void Clear_Player_List(ListClass* playerlist);
 static int Request_To_Join(char* playername, int join_index, ListClass* playerlist, HousesType house, int color);
 static void Send_Join_Queries(int curgame, int gamenow, int playernow);
+static void Send_Bonjour_Join_Query(void);
 static JoinEventType
 Get_Join_Responses(JoinStateType* joinstate, ListClass* gamelist, ColorListClass* playerlist, int join_index);
 static int Net_New_Dialog(void);
@@ -1668,6 +1669,7 @@ static int Net_Join_Dialog(void)
         Resend our query packets
         ---------------------------------------------------------------------*/
         Send_Join_Queries(game_index, 0, 0);
+        Send_Bonjour_Join_Query();
 
         /*---------------------------------------------------------------------
         Process incoming packets
@@ -2219,7 +2221,28 @@ static void Send_Join_Queries(int curgame, int gamenow, int playernow)
     }
 
 } /* end of Send_Join_Queries */
+/*
+** Send one existing game query to a validated Bonjour host. The bridge only
+** exposes four IPv4 bytes; the legacy transport remains responsible for UDP.
+*/
+static void Send_Bonjour_Join_Query(void)
+{
+    unsigned char ipv4[4];
 
+    if (!TDBonjourDiscovery::Take_Pending_Endpoint(ipv4)) {
+        return;
+    }
+
+    NetNumType net = {0, 0, 0, 0};
+    NetNodeType node = {0, 0, 0, 0, 0, 0};
+    memcpy(node, ipv4, sizeof(ipv4));
+    IPXAddressClass address(net, node);
+
+    memset(&GPacket, 0, sizeof(GlobalPacketType));
+    GPacket.Command = NET_QUERY_GAME;
+    Ipx.Send_Global_Message(&GPacket, sizeof(GlobalPacketType), 0, &address);
+    DBG_LOG("BONJOUR_DIAG main-thread explicit NET_QUERY_GAME queued");
+}
 /***********************************************************************************************
  * Get_Join_Responses -- sends queries for the Join Dialog												  *
  *                                                                         						  *

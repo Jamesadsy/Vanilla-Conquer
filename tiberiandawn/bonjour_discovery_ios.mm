@@ -11,15 +11,228 @@
 
 #include <Network/Network.h>
 #include <dispatch/dispatch.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <stdlib.h>
+#include <string.h>
+#include <mutex>
 
 namespace {
 
 constexpr const char* kBonjourServiceType = "_vctd._tcp";
+constexpr size_t kControlRecordSize = 12;
+constexpr unsigned short kLegacyUdpPort = 1234;
 
 dispatch_queue_t Bonjour_Queue = nullptr;
 nw_listener_t Bonjour_Listener = nullptr;
 nw_browser_t Bonjour_Browser = nullptr;
 size_t Bonjour_Browse_Result_Count = 0;
+std::mutex Bonjour_Endpoint_Mutex;
+unsigned char Bonjour_Pending_Endpoint[4] = {};
+bool Bonjour_Has_Pending_Endpoint = false;
+std::mutex Bonjour_Control_Mutex;
+nw_connection_t Bonjour_Browser_Control = nullptr;
+bool Bonjour_Browser_Control_Active = false;
+
+bool Is_Usable_IPv4(const unsigned char ipv4[4])
+{
+    if (ipv4[0] == 0 || ipv4[0] == 127 || ipv4[0] >= 224) {
+        return false;
+    }
+    if (ipv4[0] == 192 && ipv4[1] == 0 && ipv4[2] == 0) {
+        return false;
+    }
+    return !(ipv4[0] == 255 && ipv4[1] == 255 && ipv4[2] == 255 && ipv4[3] == 255);
+}
+
+void Queue_Pending_Endpoint(const unsigned char ipv4[4])
+{
+    std::lock_guard<std::mutex> lock(Bonjour_Endpoint_Mutex);
+    memcpy(Bonjour_Pending_Endpoint, ipv4, sizeof(Bonjour_Pending_Endpoint));
+    Bonjour_Has_Pending_Endpoint = true;
+}
+
+void Finish_Browser_Control(nw_connection_t connection)
+{
+    bool owns_connection = false;
+    {
+        std::lock_guard<std::mutex> lock(Bonjour_Control_Mutex);
+        if (Bonjour_Browser_Control == connection) {
+            Bonjour_Browser_Control = nullptr;
+            Bonjour_Browser_Control_Active = false;
+            owns_connection = true;
+        }
+    }
+
+    if (owns_connection) {
+        nw_connection_cancel(connection);
+        nw_release(connection);
+    }
+}
+
+void Cancel_Browser_Control()
+{
+    nw_connection_t connection = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(Bonjour_Control_Mutex);
+        connection = Bonjour_Browser_Control;
+        Bonjour_Browser_Control = nullptr;
+        Bonjour_Browser_Control_Active = false;
+    }
+
+    if (connection != nullptr) {
+        nw_connection_cancel(connection);
+        nw_release(connection);
+    }
+}
+
+void Send_Host_Control_Record(nw_connection_t connection, void (^finish)(void))
+{
+    nw_path_t path = nw_connection_copy_current_path(connection);
+    nw_endpoint_t endpoint = path != nullptr ? nw_path_copy_effective_local_endpoint(path) : nullptr;
+    const sockaddr* address = endpoint != nullptr ? nw_endpoint_get_address(endpoint) : nullptr;
+    const sockaddr_in* ipv4_address =
+        address != nullptr && address->sa_family == AF_INET ? reinterpret_cast<const sockaddr_in*>(address) : nullptr;
+
+    if (ipv4_address == nullptr || !Is_Usable_IPv4(reinterpret_cast<const unsigned char*>(&ipv4_address->sin_addr))) {
+        DBG_LOG("BONJOUR_DIAG host control record rejected");
+        if (endpoint != nullptr) {
+            nw_release(endpoint);
+        }
+        if (path != nullptr) {
+            nw_release(path);
+        }
+        finish();
+        return;
+    }
+
+    unsigned char* record = static_cast<unsigned char*>(malloc(kControlRecordSize));
+    if (record == nullptr) {
+        DBG_LOG("BONJOUR_DIAG host control record rejected");
+        nw_release(endpoint);
+        nw_release(path);
+        finish();
+        return;
+    }
+
+    record[0] = 'V';
+    record[1] = 'C';
+    record[2] = 'T';
+    record[3] = 'D';
+    record[4] = 1;
+    record[5] = 0;
+    memcpy(record + 6, &ipv4_address->sin_addr, 4);
+    record[10] = static_cast<unsigned char>(kLegacyUdpPort >> 8);
+    record[11] = static_cast<unsigned char>(kLegacyUdpPort & 0xff);
+
+    nw_release(endpoint);
+    nw_release(path);
+
+    dispatch_data_t payload =
+        dispatch_data_create(record, kControlRecordSize, Bonjour_Queue, DISPATCH_DATA_DESTRUCTOR_FREE);
+    if (payload == nullptr) {
+        free(record);
+        DBG_LOG("BONJOUR_DIAG host control record rejected");
+        finish();
+        return;
+    }
+    nw_connection_send(connection, payload, NW_CONNECTION_DEFAULT_MESSAGE_CONTEXT, true, ^(nw_error_t error) {
+        if (error != nullptr) {
+            DBG_LOG("BONJOUR_DIAG host control record failed: domain=%d error=%d", nw_error_get_error_domain(error),
+                    nw_error_get_error_code(error));
+        } else {
+            DBG_LOG("BONJOUR_DIAG host control record sent");
+        }
+        finish();
+    });
+}
+
+void Start_Browser_Control(nw_browse_result_t result)
+{
+    {
+        std::lock_guard<std::mutex> lock(Bonjour_Control_Mutex);
+        if (Bonjour_Browser_Control_Active) {
+            return;
+        }
+        Bonjour_Browser_Control_Active = true;
+    }
+
+    nw_endpoint_t endpoint = nw_browse_result_copy_endpoint(result);
+    nw_parameters_t parameters = nw_parameters_create_secure_tcp(NW_PARAMETERS_DISABLE_PROTOCOL,
+                                                                   NW_PARAMETERS_DEFAULT_CONFIGURATION);
+    if (endpoint == nullptr || parameters == nullptr) {
+        if (parameters != nullptr) {
+            nw_release(parameters);
+        }
+        if (endpoint != nullptr) {
+            nw_release(endpoint);
+        }
+        std::lock_guard<std::mutex> lock(Bonjour_Control_Mutex);
+        Bonjour_Browser_Control_Active = false;
+        DBG_LOG("BONJOUR_DIAG browser control rejected");
+        return;
+    }
+    nw_connection_t connection = nw_connection_create(endpoint, parameters);
+    nw_release(parameters);
+    nw_release(endpoint);
+
+    if (connection == nullptr) {
+        std::lock_guard<std::mutex> lock(Bonjour_Control_Mutex);
+        Bonjour_Browser_Control_Active = false;
+        DBG_LOG("BONJOUR_DIAG browser control rejected");
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(Bonjour_Control_Mutex);
+        Bonjour_Browser_Control = connection;
+    }
+
+    nw_connection_set_state_changed_handler(connection, ^(nw_connection_state_t state, nw_error_t error) {
+        switch (state) {
+        case nw_connection_state_ready:
+            DBG_LOG("BONJOUR_DIAG browser control ready");
+            nw_connection_receive(connection, kControlRecordSize, kControlRecordSize,
+                                  ^(dispatch_data_t content, nw_content_context_t context, bool is_complete, nw_error_t receive_error) {
+                                      (void)context;
+                                      (void)is_complete;
+                                      const void* bytes = nullptr;
+                                      size_t size = 0;
+                                      dispatch_data_t mapped =
+                                          content != nullptr ? dispatch_data_create_map(content, &bytes, &size) : nullptr;
+                                      if (receive_error != nullptr || mapped == nullptr || size != kControlRecordSize) {
+                                          DBG_LOG("BONJOUR_DIAG browser control record rejected");
+                                      } else {
+                                          const unsigned char* record = static_cast<const unsigned char*>(bytes);
+                                          bool valid = record[0] == 'V' && record[1] == 'C' && record[2] == 'T' && record[3] == 'D'
+                                              && record[4] == 1 && record[5] == 0 && record[10] == (kLegacyUdpPort >> 8)
+                                              && record[11] == (kLegacyUdpPort & 0xff) && Is_Usable_IPv4(record + 6);
+                                          if (valid) {
+                                              Queue_Pending_Endpoint(record + 6);
+                                              DBG_LOG("BONJOUR_DIAG browser control record accepted; endpoint queued");
+                                          } else {
+                                              DBG_LOG("BONJOUR_DIAG browser control record rejected");
+                                          }
+                                      }
+                                      Finish_Browser_Control(connection);
+                                  });
+            break;
+        case nw_connection_state_failed:
+            DBG_LOG("BONJOUR_DIAG browser control failed: domain=%d error=%d", nw_error_get_error_domain(error),
+                    nw_error_get_error_code(error));
+            Finish_Browser_Control(connection);
+            break;
+        case nw_connection_state_cancelled:
+            Finish_Browser_Control(connection);
+            break;
+        default:
+            break;
+        }
+    });
+    nw_connection_set_queue(connection, Bonjour_Queue);
+    nw_connection_start(connection);
+    DBG_LOG("BONJOUR_DIAG browser control connection started");
+}
 
 void Ensure_Bonjour_Queue()
 {
@@ -90,8 +303,37 @@ void Start_Host()
         Log_Listener_State(state, error);
     });
     nw_listener_set_new_connection_handler(Bonjour_Listener, ^(nw_connection_t connection) {
-        DBG_LOG("BONJOUR_DIAG inbound control connection rejected during lifecycle proof");
-        nw_connection_cancel(connection);
+        __block bool finished = false;
+        void (^finish)(void) = ^{
+            if (!finished) {
+                finished = true;
+                nw_connection_cancel(connection);
+                nw_release(connection);
+            }
+        };
+
+        nw_retain(connection);
+        DBG_LOG("BONJOUR_DIAG host control connection accepted");
+        nw_connection_set_state_changed_handler(connection, ^(nw_connection_state_t state, nw_error_t error) {
+            switch (state) {
+            case nw_connection_state_ready:
+                DBG_LOG("BONJOUR_DIAG host control connection ready");
+                Send_Host_Control_Record(connection, finish);
+                break;
+            case nw_connection_state_failed:
+                DBG_LOG("BONJOUR_DIAG host control failed: domain=%d error=%d", nw_error_get_error_domain(error),
+                        nw_error_get_error_code(error));
+                finish();
+                break;
+            case nw_connection_state_cancelled:
+                finish();
+                break;
+            default:
+                break;
+            }
+        });
+        nw_connection_set_queue(connection, Bonjour_Queue);
+        nw_connection_start(connection);
     });
     nw_listener_set_queue(Bonjour_Listener, Bonjour_Queue);
     nw_listener_start(Bonjour_Listener);
@@ -145,6 +387,9 @@ void Start_Browse()
                                                       DBG_LOG("BONJOUR_DIAG browser results: count=%zu added=%d removed=%d complete=%d",
                                                               Bonjour_Browse_Result_Count, added ? 1 : 0, removed ? 1 : 0,
                                                               changes_complete ? 1 : 0);
+                                                      if (added) {
+                                                          Start_Browser_Control(new_result);
+                                                      }
                                                   });
     nw_browser_set_queue(Bonjour_Browser, Bonjour_Queue);
     nw_browser_start(Bonjour_Browser);
@@ -153,6 +398,12 @@ void Start_Browse()
 
 void Stop_Browse()
 {
+    Cancel_Browser_Control();
+    {
+        std::lock_guard<std::mutex> lock(Bonjour_Endpoint_Mutex);
+        Bonjour_Has_Pending_Endpoint = false;
+    }
+
     if (Bonjour_Browser == nullptr) {
         return;
     }
@@ -162,6 +413,18 @@ void Stop_Browse()
     Bonjour_Browser = nullptr;
     Bonjour_Browse_Result_Count = 0;
     DBG_LOG("BONJOUR_DIAG browser stop");
+}
+
+bool Take_Pending_Endpoint(unsigned char ipv4[4])
+{
+    std::lock_guard<std::mutex> lock(Bonjour_Endpoint_Mutex);
+    if (!Bonjour_Has_Pending_Endpoint) {
+        return false;
+    }
+
+    memcpy(ipv4, Bonjour_Pending_Endpoint, sizeof(Bonjour_Pending_Endpoint));
+    Bonjour_Has_Pending_Endpoint = false;
+    return true;
 }
 
 } // namespace TDBonjourDiscovery

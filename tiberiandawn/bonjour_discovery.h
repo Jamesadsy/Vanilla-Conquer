@@ -19,11 +19,17 @@ void Start_Host();
 void Stop_Host();
 void Start_Browse();
 void Stop_Browse();
+bool Take_Pending_Endpoint(unsigned char ipv4[4]);
 #else
 inline void Start_Host() {}
 inline void Stop_Host() {}
 inline void Start_Browse() {}
 inline void Stop_Browse() {}
+inline bool Take_Pending_Endpoint(unsigned char ipv4[4])
+{
+    (void)ipv4;
+    return false;
+}
 #endif
 
 } // namespace TDBonjourDiscovery
