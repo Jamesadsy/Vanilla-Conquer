@@ -507,6 +507,7 @@ void WinsockInterfaceClass::Broadcast(void* buffer, int buffer_len)
     /*
     ** Add it to our out list.
     */
+    DBG_LOG("UDP_DIAG base broadcast queued: length=%d", buffer_len);
     OutBuffers.Add(packet);
 
 #if defined _WIN32 && !defined SDL_BUILD

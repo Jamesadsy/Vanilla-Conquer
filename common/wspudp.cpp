@@ -331,6 +331,9 @@ bool UDPInterfaceClass::Open_Socket(SOCKET)
  *=============================================================================================*/
 void UDPInterfaceClass::Broadcast(void* buffer, int buffer_len)
 {
+    DBG_LOG("UDP_DIAG UDP override broadcast entered: length=%d destinations=%d",
+            buffer_len,
+            BroadcastAddresses.Count());
     for (int i = 0; i < BroadcastAddresses.Count(); i++) {
 
         /*
