@@ -11,7 +11,9 @@
 
 #include <Network/Network.h>
 #include <dispatch/dispatch.h>
+#include <ifaddrs.h>
 #include <netinet/in.h>
+#include <net/if.h>
 #include <sys/socket.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,6 +45,74 @@ bool Is_Usable_IPv4(const unsigned char ipv4[4])
         return false;
     }
     return !(ipv4[0] == 255 && ipv4[1] == 255 && ipv4[2] == 255 && ipv4[3] == 255);
+}
+
+int Private_LAN_Priority(const unsigned char ipv4[4])
+{
+    if (ipv4[0] == 192 && ipv4[1] == 168) {
+        return 0;
+    }
+    if (ipv4[0] == 10) {
+        return 1;
+    }
+    if (ipv4[0] == 172 && ipv4[1] >= 16 && ipv4[1] <= 31) {
+        return 2;
+    }
+    return -1;
+}
+
+bool Is_Private_LAN_IPv4(const unsigned char ipv4[4])
+{
+    return Is_Usable_IPv4(ipv4) && Private_LAN_Priority(ipv4) >= 0;
+}
+
+bool Select_Host_LAN_IPv4(unsigned char ipv4[4])
+{
+    struct ifaddrs* interfaces = nullptr;
+    if (getifaddrs(&interfaces) != 0) {
+        return false;
+    }
+
+    bool found = false;
+    for (int priority = 0; priority <= 2 && !found; ++priority) {
+        for (struct ifaddrs* entry = interfaces; entry != nullptr; entry = entry->ifa_next) {
+            if (entry->ifa_addr == nullptr || entry->ifa_addr->sa_family != AF_INET
+                || (entry->ifa_flags & IFF_UP) == 0 || (entry->ifa_flags & IFF_LOOPBACK) != 0) {
+                continue;
+            }
+
+            const sockaddr_in* address = reinterpret_cast<const sockaddr_in*>(entry->ifa_addr);
+            const unsigned char* candidate = reinterpret_cast<const unsigned char*>(&address->sin_addr);
+            if (Private_LAN_Priority(candidate) == priority && Is_Private_LAN_IPv4(candidate)) {
+                memcpy(ipv4, candidate, 4);
+                found = true;
+                break;
+            }
+        }
+    }
+
+    freeifaddrs(interfaces);
+    return found;
+}
+
+bool Select_Path_LAN_IPv4(nw_connection_t connection, unsigned char ipv4[4])
+{
+    nw_path_t path = nw_connection_copy_current_path(connection);
+    nw_endpoint_t endpoint = path != nullptr ? nw_path_copy_effective_local_endpoint(path) : nullptr;
+    const sockaddr* address = endpoint != nullptr ? nw_endpoint_get_address(endpoint) : nullptr;
+    const sockaddr_in* candidate =
+        address != nullptr && address->sa_family == AF_INET ? reinterpret_cast<const sockaddr_in*>(address) : nullptr;
+    bool found = candidate != nullptr && Is_Private_LAN_IPv4(reinterpret_cast<const unsigned char*>(&candidate->sin_addr));
+    if (found) {
+        memcpy(ipv4, &candidate->sin_addr, 4);
+    }
+    if (endpoint != nullptr) {
+        nw_release(endpoint);
+    }
+    if (path != nullptr) {
+        nw_release(path);
+    }
+    return found;
 }
 
 void Queue_Pending_Endpoint(const unsigned char ipv4[4])
@@ -88,29 +158,18 @@ void Cancel_Browser_Control()
 
 void Send_Host_Control_Record(nw_connection_t connection, void (^finish)(void))
 {
-    nw_path_t path = nw_connection_copy_current_path(connection);
-    nw_endpoint_t endpoint = path != nullptr ? nw_path_copy_effective_local_endpoint(path) : nullptr;
-    const sockaddr* address = endpoint != nullptr ? nw_endpoint_get_address(endpoint) : nullptr;
-    const sockaddr_in* ipv4_address =
-        address != nullptr && address->sa_family == AF_INET ? reinterpret_cast<const sockaddr_in*>(address) : nullptr;
-
-    if (ipv4_address == nullptr || !Is_Usable_IPv4(reinterpret_cast<const unsigned char*>(&ipv4_address->sin_addr))) {
+    unsigned char ipv4[4];
+    if (!Select_Host_LAN_IPv4(ipv4) && !Select_Path_LAN_IPv4(connection, ipv4)) {
+        DBG_LOG("BONJOUR_DIAG no suitable host LAN IPv4");
         DBG_LOG("BONJOUR_DIAG host control record rejected");
-        if (endpoint != nullptr) {
-            nw_release(endpoint);
-        }
-        if (path != nullptr) {
-            nw_release(path);
-        }
         finish();
         return;
     }
+    DBG_LOG("BONJOUR_DIAG host LAN IPv4 selected");
 
     unsigned char* record = static_cast<unsigned char*>(malloc(kControlRecordSize));
     if (record == nullptr) {
         DBG_LOG("BONJOUR_DIAG host control record rejected");
-        nw_release(endpoint);
-        nw_release(path);
         finish();
         return;
     }
@@ -121,12 +180,9 @@ void Send_Host_Control_Record(nw_connection_t connection, void (^finish)(void))
     record[3] = 'D';
     record[4] = 1;
     record[5] = 0;
-    memcpy(record + 6, &ipv4_address->sin_addr, 4);
+    memcpy(record + 6, ipv4, sizeof(ipv4));
     record[10] = static_cast<unsigned char>(kLegacyUdpPort >> 8);
     record[11] = static_cast<unsigned char>(kLegacyUdpPort & 0xff);
-
-    nw_release(endpoint);
-    nw_release(path);
 
     dispatch_data_t payload =
         dispatch_data_create(record, kControlRecordSize, Bonjour_Queue, DISPATCH_DATA_DESTRUCTOR_FREE);
