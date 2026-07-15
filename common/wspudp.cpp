@@ -53,6 +53,10 @@ extern WWKeyboardClass* Keyboard;
 #include <stdio.h>
 #include <assert.h>
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
 #ifndef _WIN32
 #include <ifaddrs.h>
 #endif
@@ -181,8 +185,12 @@ bool UDPInterfaceClass::Open_Socket(SOCKET)
         return (false);
     }
     DBG_LOG("UDP_DIAG SO_BROADCAST succeeded");
+#if defined(__APPLE__) && TARGET_OS_IOS
+    DBG_LOG("UDP_DIAG iOS all-ones broadcast skipped; interface broadcast addresses will be used");
+#else
     Set_Broadcast_Address((void*)"255.255.255.255");
     DBG_LOG("UDP_DIAG broadcast address selected: 255.255.255.255");
+#endif
 
     /*
     ** Sets the socket as nonblocking.
