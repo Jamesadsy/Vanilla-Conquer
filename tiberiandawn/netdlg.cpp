@@ -717,6 +717,7 @@ bool Client_Remote_Connect(void)
  *=============================================================================================*/
 static int Net_Join_Dialog(void)
 {
+    DBG_LOG("BONJOUR_DIAG browse lifecycle entered");
     TDBonjourDiscovery::Start_Browse();
     int factor = (SeenBuff.Get_Width() == 320) ? 1 : 2;
     /*........................................................................
@@ -2656,6 +2657,7 @@ Get_Join_Responses(JoinStateType* joinstate, ListClass* gamelist, ColorListClass
  *=============================================================================================*/
 static int Net_New_Dialog(void)
 {
+    DBG_LOG("BONJOUR_DIAG host lifecycle entered");
     TDBonjourDiscovery::Start_Host();
     /* ###Change collision detected! C:\PROJECTS\CODE\NETDLG.CPP... */
     int factor = (SeenBuff.Get_Width() == 320) ? 1 : 2;
