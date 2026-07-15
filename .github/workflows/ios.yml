@@ -152,6 +152,9 @@ jobs:
               $PB -c "Add :CFBundleDisplayName string CnC TD" "$plist"
               $PB -c "Delete :NSLocalNetworkUsageDescription" "$plist" 2>/dev/null || true
               $PB -c "Add :NSLocalNetworkUsageDescription string CnC TD uses your local network to find and join local multiplayer games." "$plist"
+              $PB -c "Delete :NSBonjourServices" "$plist" 2>/dev/null || true
+              $PB -c "Add :NSBonjourServices array" "$plist"
+              $PB -c "Add :NSBonjourServices:0 string _vctd._tcp" "$plist"
             elif [ "$app" = "vanillara" ]; then
               $PB -c "Delete :CFBundleDisplayName" "$plist" 2>/dev/null || true
               $PB -c "Add :CFBundleDisplayName string CnC RA" "$plist"

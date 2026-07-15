@@ -217,6 +217,13 @@ if(BUILD_VANILLATD)
     # A target must include the icon for the custom command to run.
     add_executable(VanillaTD ${TIBDAWN_SRC} ${TIBDAWN_NET_SRC} ${TIBDAWN_HEADERS} ${VANILLATD_RC} ${VANILLATD_ICON})
 
+    if(APPLE AND CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        enable_language(OBJCXX)
+        find_library(TD_NETWORK_FRAMEWORK Network REQUIRED)
+        target_sources(VanillaTD PRIVATE bonjour_discovery_ios.mm)
+        target_link_libraries(VanillaTD PRIVATE ${TD_NETWORK_FRAMEWORK})
+    endif()
+
     if(MAKE_BUNDLE)
         set_source_files_properties(${VANILLATD_ICON} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
         set_target_properties(VanillaTD PROPERTIES

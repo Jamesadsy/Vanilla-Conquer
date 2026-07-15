@@ -90,6 +90,7 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "bonjour_discovery.h"
 #include <time.h>
 #include "framelimit.h"
 #define SHOW_MONO 0
@@ -716,6 +717,7 @@ bool Client_Remote_Connect(void)
  *=============================================================================================*/
 static int Net_Join_Dialog(void)
 {
+    TDBonjourDiscovery::Start_Browse();
     int factor = (SeenBuff.Get_Width() == 320) ? 1 : 2;
     /*........................................................................
     Dialog & button dimensions
@@ -1962,6 +1964,7 @@ static int Net_Join_Dialog(void)
     Blit_Hid_Page_To_Seen_Buff();
     Show_Mouse();
 
+    TDBonjourDiscovery::Stop_Browse();
     return (rc);
 }
 
@@ -2653,6 +2656,7 @@ Get_Join_Responses(JoinStateType* joinstate, ListClass* gamelist, ColorListClass
  *=============================================================================================*/
 static int Net_New_Dialog(void)
 {
+    TDBonjourDiscovery::Start_Host();
     /* ###Change collision detected! C:\PROJECTS\CODE\NETDLG.CPP... */
     int factor = (SeenBuff.Get_Width() == 320) ? 1 : 2;
     /*........................................................................
@@ -3809,6 +3813,7 @@ static int Net_New_Dialog(void)
     Blit_Hid_Page_To_Seen_Buff();
     Show_Mouse();
 
+    TDBonjourDiscovery::Stop_Host();
     return (rc);
 }
 
