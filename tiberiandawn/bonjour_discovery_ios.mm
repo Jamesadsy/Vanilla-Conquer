@@ -37,7 +37,8 @@ void Log_Listener_State(nw_listener_state_t state, nw_error_t error)
         }
         break;
     case nw_listener_state_failed:
-        DBG_LOG("BONJOUR_DIAG listener failed: error=%d", nw_error_get_error_code(error));
+        DBG_LOG("BONJOUR_DIAG listener failed: domain=%d error=%d", nw_error_get_error_domain(error),
+                nw_error_get_error_code(error));
         break;
     case nw_listener_state_cancelled:
         DBG_LOG("BONJOUR_DIAG listener cancelled");
@@ -87,6 +88,10 @@ void Start_Host()
 
     nw_listener_set_state_changed_handler(Bonjour_Listener, ^(nw_listener_state_t state, nw_error_t error) {
         Log_Listener_State(state, error);
+    });
+    nw_listener_set_new_connection_handler(Bonjour_Listener, ^(nw_connection_t connection) {
+        DBG_LOG("BONJOUR_DIAG inbound control connection rejected during lifecycle proof");
+        nw_connection_cancel(connection);
     });
     nw_listener_set_queue(Bonjour_Listener, Bonjour_Queue);
     nw_listener_start(Bonjour_Listener);
