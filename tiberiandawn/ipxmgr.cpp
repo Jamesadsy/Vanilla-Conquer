@@ -962,15 +962,43 @@ int IPXManagerClass::Service(void)
                 CurDataBuf = (char*)temp_receive_buffer;
                 address = *((IPXAddressClass*)temp_address);
 
+                NetNumType network;
+                NetNodeType node;
+                address.Get_Address(network, node);
+
                 packet = (CommHeaderType*)CurDataBuf;
                 if (packet->MagicNumber == GlobalChannel->Magic_Num()) {
+
+                    DBG_LOG("LOBBY_REPLY_DIAG global transport accepted: length=%d magic=%u expected-magic=%u source=%u.%u.%u.%u",
+                            packetlen,
+                            packet->MagicNumber,
+                            GlobalChannel->Magic_Num(),
+                            node[0],
+                            node[1],
+                            node[2],
+                            node[3]);
 
                     /*
                     ** Put the packet in the Global Queue
                     */
-                    if (!GlobalChannel->Receive_Packet(packet, packetlen, &address))
+                    if (!GlobalChannel->Receive_Packet(packet, packetlen, &address)) {
+                        DBG_LOG("LOBBY_REPLY_DIAG global channel queue rejected: length=%d source=%u.%u.%u.%u",
+                                packetlen,
+                                node[0],
+                                node[1],
+                                node[2],
+                                node[3]);
                         ReceiveOverflows++;
+                    }
                 } else {
+                    DBG_LOG("LOBBY_REPLY_DIAG global transport rejected: length=%d magic=%u expected-magic=%u source=%u.%u.%u.%u",
+                            packetlen,
+                            packet->MagicNumber,
+                            GlobalChannel->Magic_Num(),
+                            node[0],
+                            node[1],
+                            node[2],
+                            node[3]);
                     if (packet->MagicNumber == ProductID) {
 
                         /*

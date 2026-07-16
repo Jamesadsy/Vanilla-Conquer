@@ -52,6 +52,7 @@ extern WWKeyboardClass* Keyboard;
 #include <assert.h>
 #include <stdio.h>
 #include <assert.h>
+#include <deque>
 
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
@@ -62,6 +63,105 @@ extern WWKeyboardClass* Keyboard;
 #endif
 
 #ifdef NETWORKING
+
+namespace
+{
+struct LobbyReplyDiagnosticMarker
+{
+    unsigned char Destination[4];
+    int PacketLength;
+    int PayloadOffset;
+    unsigned char ExpectedCommand;
+};
+
+std::mutex LobbyReplyDiagnosticMutex;
+std::deque<LobbyReplyDiagnosticMarker> PendingLobbyReplyDiagnostics;
+std::deque<LobbyReplyDiagnosticMarker> OutboundLobbyReplyDiagnostics;
+
+bool Lobby_Reply_Diagnostic_Matches(const LobbyReplyDiagnosticMarker& marker,
+                                    const unsigned char destination[4],
+                                    int packet_length,
+                                    const void* buffer)
+{
+    return marker.PacketLength == packet_length && packet_length > marker.PayloadOffset
+           && ((const unsigned char*)buffer)[marker.PayloadOffset] == marker.ExpectedCommand
+           && memcmp(marker.Destination, destination, sizeof(marker.Destination)) == 0;
+}
+
+bool Take_Pending_Lobby_Reply_Diagnostic(const unsigned char destination[4],
+                                         int packet_length,
+                                         const void* buffer,
+                                         bool full_broadcast)
+{
+    std::lock_guard<std::mutex> lock(LobbyReplyDiagnosticMutex);
+
+    for (std::deque<LobbyReplyDiagnosticMarker>::iterator marker = PendingLobbyReplyDiagnostics.begin();
+         marker != PendingLobbyReplyDiagnostics.end();
+         ++marker) {
+        if (marker->PacketLength != packet_length || packet_length <= marker->PayloadOffset
+            || ((const unsigned char*)buffer)[marker->PayloadOffset] != marker->ExpectedCommand)
+            continue;
+
+        if (full_broadcast || !memcmp(marker->Destination, destination, sizeof(marker->Destination))) {
+            if (!full_broadcast) {
+                if (OutboundLobbyReplyDiagnostics.size() == 8) {
+                    OutboundLobbyReplyDiagnostics.pop_front();
+                    DBG_LOG("LOBBY_REPLY_DIAG outbound marker capacity reached; oldest diagnostic marker dropped");
+                }
+                OutboundLobbyReplyDiagnostics.push_back(*marker);
+            }
+            PendingLobbyReplyDiagnostics.erase(marker);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool Has_Outbound_Lobby_Reply_Diagnostic(const unsigned char destination[4], int packet_length, const void* buffer)
+{
+    std::lock_guard<std::mutex> lock(LobbyReplyDiagnosticMutex);
+
+    for (std::deque<LobbyReplyDiagnosticMarker>::const_iterator marker = OutboundLobbyReplyDiagnostics.begin();
+         marker != OutboundLobbyReplyDiagnostics.end();
+         ++marker) {
+        if (Lobby_Reply_Diagnostic_Matches(*marker, destination, packet_length, buffer))
+            return true;
+    }
+
+    return false;
+}
+
+void Complete_Outbound_Lobby_Reply_Diagnostic(const unsigned char destination[4], int packet_length, const void* buffer)
+{
+    std::lock_guard<std::mutex> lock(LobbyReplyDiagnosticMutex);
+
+    for (std::deque<LobbyReplyDiagnosticMarker>::iterator marker = OutboundLobbyReplyDiagnostics.begin();
+         marker != OutboundLobbyReplyDiagnostics.end();
+         ++marker) {
+        if (Lobby_Reply_Diagnostic_Matches(*marker, destination, packet_length, buffer)) {
+            OutboundLobbyReplyDiagnostics.erase(marker);
+            return;
+        }
+    }
+}
+} // namespace
+
+void Arm_Lobby_Reply_Diagnostic(const unsigned char ipv4[4], int packet_length, int payload_offset, unsigned char expected_command)
+{
+    LobbyReplyDiagnosticMarker marker;
+    memcpy(marker.Destination, ipv4, sizeof(marker.Destination));
+    marker.PacketLength = packet_length;
+    marker.PayloadOffset = payload_offset;
+    marker.ExpectedCommand = expected_command;
+
+    std::lock_guard<std::mutex> lock(LobbyReplyDiagnosticMutex);
+    if (PendingLobbyReplyDiagnostics.size() == 8) {
+        PendingLobbyReplyDiagnostics.pop_front();
+        DBG_LOG("LOBBY_REPLY_DIAG marker capacity reached; oldest diagnostic marker dropped");
+    }
+    PendingLobbyReplyDiagnostics.push_back(marker);
+}
 
 /***********************************************************************************************
  * UDPInterfaceClass::UDPInterfaceClass -- Class constructor.                                  *
@@ -377,6 +477,20 @@ void UDPInterfaceClass::WriteTo(void* buffer, int buffer_len, void* address)
     IPXAddressClass* ipx_address = (IPXAddressClass*)address;
 
     ipx_address->Get_Address(network, node);
+    bool lobby_reply_diagnostic =
+        Take_Pending_Lobby_Reply_Diagnostic(node, buffer_len, buffer, ipx_address->Is_Broadcast());
+    if (lobby_reply_diagnostic) {
+        if (ipx_address->Is_Broadcast()) {
+            DBG_LOG("LOBBY_REPLY_DIAG reply WriteTo observed as full-broadcast: length=%d", buffer_len);
+        } else {
+            DBG_LOG("LOBBY_REPLY_DIAG reply WriteTo direct: destination=%u.%u.%u.%u length=%d",
+                    node[0],
+                    node[1],
+                    node[2],
+                    node[3],
+                    buffer_len);
+        }
+    }
     DBG_LOG("UDP_DIAG UDP override WriteTo entered: network=%u.%u.%u.%u node=%u.%u.%u.%u full-broadcast=%d length=%d",
             network[0],
             network[1],
@@ -720,6 +834,14 @@ int UDPInterfaceClass::Message_Handler()
                 memcpy(&addr.sin_addr.s_addr, packet->Address + 4, 4);
                 char address[INET_ADDRSTRLEN];
                 inet_ntop(AF_INET, &addr.sin_addr, address, INET_ADDRSTRLEN);
+                bool lobby_reply_diagnostic = Has_Outbound_Lobby_Reply_Diagnostic(
+                    (const unsigned char*)&addr.sin_addr.s_addr, packet->BufferLen, packet->Buffer);
+                if (lobby_reply_diagnostic) {
+                    DBG_LOG("LOBBY_REPLY_DIAG reply sendto attempt: destination=%s port=%d length=%d",
+                            address,
+                            PlanetWestwoodPortNumber,
+                            packet->BufferLen);
+                }
                 DBG_LOG("UDP_DIAG sendto attempt: destination=%s port=%d length=%d",
                         address, PlanetWestwoodPortNumber, packet->BufferLen);
 
@@ -738,12 +860,23 @@ int UDPInterfaceClass::Message_Handler()
                             packet->BufferLen,
                             send_error,
                             strerror(send_error));
+                    if (lobby_reply_diagnostic) {
+                        DBG_LOG("LOBBY_REPLY_DIAG reply sendto failed: destination=%s port=%d length=%d error=%d (%s)",
+                                address,
+                                PlanetWestwoodPortNumber,
+                                packet->BufferLen,
+                                send_error,
+                                strerror(send_error));
+                    }
                     if (send_error != WSAEWOULDBLOCK) {
 #if defined(__APPLE__) && TARGET_OS_IOS
                         const unsigned char all_ones_destination[4] = {0xff, 0xff, 0xff, 0xff};
                         if (send_error == EHOSTUNREACH
                             && memcmp(packet->Address + 4, all_ones_destination, sizeof(all_ones_destination)) == 0) {
                             DBG_LOG("UDP_DIAG iOS unreachable all-ones destination dropped; continuing queue");
+                            if (lobby_reply_diagnostic)
+                                Complete_Outbound_Lobby_Reply_Diagnostic(
+                                    (const unsigned char*)&addr.sin_addr.s_addr, packet->BufferLen, packet->Buffer);
                             OutBuffers.Delete(packetnum);
                             delete packet;
                             continue;
@@ -759,6 +892,15 @@ int UDPInterfaceClass::Message_Handler()
                             PlanetWestwoodPortNumber,
                             packet->BufferLen,
                             rc);
+                    if (lobby_reply_diagnostic) {
+                        DBG_LOG("LOBBY_REPLY_DIAG reply sendto succeeded: destination=%s port=%d length=%d sent=%d",
+                                address,
+                                PlanetWestwoodPortNumber,
+                                packet->BufferLen,
+                                rc);
+                        Complete_Outbound_Lobby_Reply_Diagnostic(
+                            (const unsigned char*)&addr.sin_addr.s_addr, packet->BufferLen, packet->Buffer);
+                    }
                     /*
                     ** Delete the sent packet.
                     */

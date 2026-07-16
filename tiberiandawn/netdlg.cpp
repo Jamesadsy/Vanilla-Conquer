@@ -94,6 +94,10 @@
 #include "common/wspudp.h"
 #include <time.h>
 #include "framelimit.h"
+
+#ifdef NETWORKING
+void Arm_Lobby_Reply_Diagnostic(const unsigned char ipv4[4], int packet_length, int payload_offset, unsigned char expected_command);
+#endif
 #define SHOW_MONO 0
 
 // ST = 12/17/2018 5:44PM
@@ -282,6 +286,30 @@ bool Process_Global_Packet(GlobalPacketType* packet, IPXAddressClass* address)
 {
     GlobalPacketType mypacket;
 
+    if (packet->Command == NET_QUERY_GAME) {
+        NetNumType network;
+        NetNodeType node;
+        const bool has_player_name = strlen(MPlayerName) > 0;
+        const bool has_game_name = strlen(MPlayerGameName) > 0;
+        const bool owner_name_matches = !strcmp(MPlayerName, MPlayerGameName);
+        const bool reply_eligible = NetStealth == 0 && has_player_name && has_game_name
+                                    && ((!NetOpen) || (NetOpen && owner_name_matches));
+
+        address->Get_Address(network, node);
+        DBG_LOG("LOBBY_REPLY_DIAG query predicate: command=%d stealth=%d has-player-name=%d has-game-name=%d net-open=%d owner-name-matches=%d reply-eligible=%d source=%u.%u.%u.%u",
+                packet->Command,
+                NetStealth,
+                has_player_name,
+                has_game_name,
+                NetOpen,
+                owner_name_matches,
+                reply_eligible,
+                node[0],
+                node[1],
+                node[2],
+                node[3]);
+    }
+
     /*
     ---------------- Another system asking what game this is -----------------
     */
@@ -309,6 +337,21 @@ bool Process_Global_Packet(GlobalPacketType* packet, IPXAddressClass* address)
 #endif
             mypacket.GameInfo.IsOpen = NetOpen;
 
+            NetNumType network;
+            NetNodeType node;
+            address->Get_Address(network, node);
+            DBG_LOG("LOBBY_REPLY_DIAG NET_ANSWER_GAME reply intent: destination=%u.%u.%u.%u payload-length=%d",
+                    node[0],
+                    node[1],
+                    node[2],
+                    node[3],
+                    sizeof(GlobalPacketType));
+#ifdef NETWORKING
+            Arm_Lobby_Reply_Diagnostic(node,
+                                       sizeof(GlobalHeaderType) + sizeof(GlobalPacketType),
+                                       sizeof(GlobalHeaderType),
+                                       NET_ANSWER_GAME);
+#endif
             Ipx.Send_Global_Message(&mypacket, sizeof(GlobalPacketType), 1, address);
         }
         return (true);
@@ -3883,14 +3926,44 @@ static JoinEventType Get_NewGame_Responses(ColorListClass* playerlist)
     If there is no incoming packet, just return
     ------------------------------------------------------------------------*/
     rc = Ipx.Get_Global_Message(&GPacket, &GPacketlen, &GAddress, &GProductID);
-    if (!rc || GProductID != IPXGlobalConnClass::COMMAND_AND_CONQUER) {
+    if (!rc) {
+        return (EV_NONE);
+    }
+
+    NetNumType network;
+    NetNodeType node;
+    GAddress.Get_Address(network, node);
+    DBG_LOG("LOBBY_REPLY_DIAG host global message retrieved: command=%d length=%d product=%u source=%u.%u.%u.%u",
+            GPacket.Command,
+            GPacketlen,
+            GProductID,
+            node[0],
+            node[1],
+            node[2],
+            node[3]);
+    if (GProductID != IPXGlobalConnClass::COMMAND_AND_CONQUER) {
+        DBG_LOG("LOBBY_REPLY_DIAG host global message rejected: product=%u expected-product=%u source=%u.%u.%u.%u",
+                GProductID,
+                IPXGlobalConnClass::COMMAND_AND_CONQUER,
+                node[0],
+                node[1],
+                node[2],
+                node[3]);
         return (EV_NONE);
     }
 
     /*------------------------------------------------------------------------
     Try to handle the packet in a standard way
     ------------------------------------------------------------------------*/
-    if (Process_Global_Packet(&GPacket, &GAddress) != 0) {
+    bool global_packet_consumed = Process_Global_Packet(&GPacket, &GAddress) != 0;
+    DBG_LOG("LOBBY_REPLY_DIAG host Process_Global_Packet result: command=%d consumed=%d source=%u.%u.%u.%u",
+            GPacket.Command,
+            global_packet_consumed,
+            node[0],
+            node[1],
+            node[2],
+            node[3]);
+    if (global_packet_consumed) {
         return (EV_NONE);
     } else
 
