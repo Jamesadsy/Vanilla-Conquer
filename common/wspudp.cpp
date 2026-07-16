@@ -621,11 +621,20 @@ int UDPInterfaceClass::Message_Handler()
                 rc = sendto(Socket, (const char*)packet->Buffer, packet->BufferLen, 0, (sockaddr*)&addr, sizeof(addr));
 
                 if (rc == SOCKET_ERROR) {
-                    if (LastSocketError != WSAEWOULDBLOCK) {
+                    int send_error = LastSocketError;
+                    if (send_error != WSAEWOULDBLOCK) {
+#if defined(__APPLE__) && TARGET_OS_IOS
+                        if (packet->IsBroadcast && send_error == EHOSTUNREACH) {
+                            DBG_LOG("UDP_DIAG iOS unreachable broadcast dropped; continuing queue");
+                            OutBuffers.Delete(packetnum);
+                            delete packet;
+                            continue;
+                        }
+#endif
                         DBG_LOG("UDP_DIAG sendto failed: destination=%s length=%d error=%d",
                                 address,
                                 packet->BufferLen,
-                                LastSocketError);
+                                send_error);
                         Clear_Socket_Error(Socket);
                     }
 
