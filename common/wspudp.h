@@ -37,6 +37,10 @@
 #include "wsproto.h"
 #include "sockets.h"
 
+#include <mutex>
+
+void Queue_Bonjour_Unicast_Peer_For_Transport(const unsigned char ipv4[4]);
+
 /*
 ** Class to allow access to UDP specific portions of the Winsock interface.
 **
@@ -55,6 +59,7 @@ public:
 #endif
     virtual bool Open_Socket(SOCKET socketnum);
     virtual void Set_Broadcast_Address(void* address);
+    bool Queue_Bonjour_Unicast_Peer(const unsigned char ipv4[4]);
     virtual void WriteTo(void* buffer, int buffer_len, void* address);
     virtual void Broadcast(void* buffer, int buffer_len);
 
@@ -73,6 +78,13 @@ private:
     ** Address to use when broadcasting a packet.
     */
     DynamicVectorClass<unsigned char*> BroadcastAddresses;
+
+    /*
+    ** Armed only by TD's iOS Bonjour bridge. Entries are consumed when the
+    ** legacy global queue presents its next full-broadcast packet to WriteTo.
+    */
+    DynamicVectorClass<unsigned char*> BonjourUnicastPeers;
+    std::mutex BonjourUnicastPeerMutex;
 
     /*
     ** List of local addresses.

@@ -103,6 +103,12 @@ UDPInterfaceClass::~UDPInterfaceClass(void)
         BroadcastAddresses.Delete(0);
     }
 
+    std::lock_guard<std::mutex> bonjour_lock(BonjourUnicastPeerMutex);
+    while (BonjourUnicastPeers.Count()) {
+        delete[] BonjourUnicastPeers[0];
+        BonjourUnicastPeers.Delete(0);
+    }
+
     while (LocalAddresses.Count()) {
         delete[] LocalAddresses[0];
         LocalAddresses.Delete(0);
@@ -134,6 +140,48 @@ void UDPInterfaceClass::Set_Broadcast_Address(void* address)
 
     sscanf(ip_addr, "%hhu.%hhu.%hhu.%hhu", &baddr[0], &baddr[1], &baddr[2], &baddr[3]);
     BroadcastAddresses.Add(baddr);
+}
+
+/***********************************************************************************************
+ * Queue_Bonjour_Unicast_Peer_For_Transport -- Deliver a TD Bonjour peer to active UDP         *
+ *=============================================================================================*/
+void Queue_Bonjour_Unicast_Peer_For_Transport(const unsigned char ipv4[4])
+{
+    if (PacketTransport == nullptr || PacketTransport->Get_Protocol() != PROTOCOL_UDP) {
+        DBG_LOG("UDP_DIAG peer-unicast unavailable: UDP transport not active");
+        return;
+    }
+
+    static_cast<UDPInterfaceClass*>(PacketTransport)->Queue_Bonjour_Unicast_Peer(ipv4);
+}
+
+/***********************************************************************************************
+ * UDPInterfaceClass::Queue_Bonjour_Unicast_Peer -- Arm a Bonjour peer for one legacy query    *
+ *                                                                                             *
+ * INPUT:    four-byte network-order IPv4 address supplied by TD's Bonjour control record      *
+ *                                                                                             *
+ * OUTPUT:   True when the peer was retained for full-broadcast dispatch                       *
+ *=============================================================================================*/
+bool UDPInterfaceClass::Queue_Bonjour_Unicast_Peer(const unsigned char ipv4[4])
+{
+    if (ipv4 == nullptr || ipv4[0] == 0 || ipv4[0] == 127 || ipv4[0] >= 224
+        || (ipv4[0] == 192 && ipv4[1] == 0 && ipv4[2] == 0)
+        || (ipv4[0] == 255 && ipv4[1] == 255 && ipv4[2] == 255 && ipv4[3] == 255)) {
+        DBG_LOG("UDP_DIAG peer-unicast rejected: invalid peer address");
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(BonjourUnicastPeerMutex);
+    for (int i = 0; i < BonjourUnicastPeers.Count(); ++i) {
+        if (memcmp(BonjourUnicastPeers[i], ipv4, 4) == 0) {
+            return true;
+        }
+    }
+
+    unsigned char* peer = new unsigned char[4];
+    memcpy(peer, ipv4, 4);
+    BonjourUnicastPeers.Add(peer);
+    return true;
 }
 
 /***********************************************************************************************
@@ -329,13 +377,48 @@ void UDPInterfaceClass::WriteTo(void* buffer, int buffer_len, void* address)
     IPXAddressClass* ipx_address = (IPXAddressClass*)address;
 
     ipx_address->Get_Address(network, node);
-    DBG_LOG("UDP_DIAG UDP override WriteTo entered: network=%u.%u.%u.%u full-broadcast=%d length=%d",
+    DBG_LOG("UDP_DIAG UDP override WriteTo entered: network=%u.%u.%u.%u node=%u.%u.%u.%u full-broadcast=%d length=%d",
             network[0],
             network[1],
             network[2],
             network[3],
+            node[0],
+            node[1],
+            node[2],
+            node[3],
             ipx_address->Is_Broadcast(),
             buffer_len);
+
+    int peer_count = 0;
+    {
+        std::lock_guard<std::mutex> lock(BonjourUnicastPeerMutex);
+        peer_count = BonjourUnicastPeers.Count();
+    }
+    if (ipx_address->Is_Broadcast() && peer_count != 0) {
+        DBG_LOG("UDP_DIAG peer-unicast dispatch entered: peer-count=%d length=%d", peer_count, buffer_len);
+
+        for (int i = 0; i < peer_count; ++i) {
+            unsigned char peer[4];
+            {
+                std::lock_guard<std::mutex> lock(BonjourUnicastPeerMutex);
+                if (BonjourUnicastPeers.Count() == 0) {
+                    break;
+                }
+                memcpy(peer, BonjourUnicastPeers[0], sizeof(peer));
+                delete[] BonjourUnicastPeers[0];
+                BonjourUnicastPeers.Delete(0);
+            }
+
+            NetNumType peer_network = {0, 0, 0, 0};
+            NetNodeType peer_node = {0, 0, 0, 0, 0, 0};
+            memcpy(peer_node, peer, sizeof(peer));
+            IPXAddressClass peer_address(peer_network, peer_node);
+            DBG_LOG("UDP_DIAG peer-unicast queued: destination=%u.%u.%u.%u port=%d length=%d",
+                    peer[0], peer[1], peer[2], peer[3], PlanetWestwoodPortNumber, buffer_len);
+            WinsockInterfaceClass::WriteTo(buffer, buffer_len, &peer_address);
+        }
+        return;
+    }
 
     WinsockInterfaceClass::WriteTo(buffer, buffer_len, address);
 }
@@ -637,7 +720,8 @@ int UDPInterfaceClass::Message_Handler()
                 memcpy(&addr.sin_addr.s_addr, packet->Address + 4, 4);
                 char address[INET_ADDRSTRLEN];
                 inet_ntop(AF_INET, &addr.sin_addr, address, INET_ADDRSTRLEN);
-                DBG_LOG("UDP_DIAG sendto attempt: destination=%s length=%d", address, packet->BufferLen);
+                DBG_LOG("UDP_DIAG sendto attempt: destination=%s port=%d length=%d",
+                        address, PlanetWestwoodPortNumber, packet->BufferLen);
 
                 /*
                 ** Send it.
@@ -648,8 +732,9 @@ int UDPInterfaceClass::Message_Handler()
 
                 if (rc == SOCKET_ERROR) {
                     int send_error = LastSocketError;
-                    DBG_LOG("UDP_DIAG sendto failed: destination=%s length=%d error=%d (%s)",
+                    DBG_LOG("UDP_DIAG sendto failed: destination=%s port=%d length=%d error=%d (%s)",
                             address,
+                            PlanetWestwoodPortNumber,
                             packet->BufferLen,
                             send_error,
                             strerror(send_error));
@@ -669,8 +754,9 @@ int UDPInterfaceClass::Message_Handler()
 
                     break;
                 } else {
-                    DBG_LOG("UDP_DIAG sendto succeeded: destination=%s length=%d sent=%d",
+                    DBG_LOG("UDP_DIAG sendto succeeded: destination=%s port=%d length=%d sent=%d",
                             address,
+                            PlanetWestwoodPortNumber,
                             packet->BufferLen,
                             rc);
                     /*

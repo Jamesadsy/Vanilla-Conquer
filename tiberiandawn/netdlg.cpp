@@ -91,6 +91,7 @@
 
 #include "function.h"
 #include "bonjour_discovery.h"
+#include "common/wspudp.h"
 #include <time.h>
 #include "framelimit.h"
 #define SHOW_MONO 0
@@ -2240,6 +2241,8 @@ static void Send_Bonjour_Join_Query(void)
 
     memset(&GPacket, 0, sizeof(GlobalPacketType));
     GPacket.Command = NET_QUERY_GAME;
+    Queue_Bonjour_Unicast_Peer_For_Transport(ipv4);
+    DBG_LOG("BONJOUR_DIAG main-thread peer-unicast armed: destination=%u.%u.%u.%u", ipv4[0], ipv4[1], ipv4[2], ipv4[3]);
     Ipx.Send_Global_Message(&GPacket, sizeof(GlobalPacketType), 0, &address);
     DBG_LOG("BONJOUR_DIAG main-thread explicit NET_QUERY_GAME queued");
 }
