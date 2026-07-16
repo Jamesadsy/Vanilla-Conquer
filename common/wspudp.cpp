@@ -624,8 +624,10 @@ int UDPInterfaceClass::Message_Handler()
                     int send_error = LastSocketError;
                     if (send_error != WSAEWOULDBLOCK) {
 #if defined(__APPLE__) && TARGET_OS_IOS
-                        if (packet->IsBroadcast && send_error == EHOSTUNREACH) {
-                            DBG_LOG("UDP_DIAG iOS unreachable broadcast dropped; continuing queue");
+                        const unsigned char all_ones_destination[4] = {0xff, 0xff, 0xff, 0xff};
+                        if (send_error == EHOSTUNREACH
+                            && memcmp(packet->Address + 4, all_ones_destination, sizeof(all_ones_destination)) == 0) {
+                            DBG_LOG("UDP_DIAG iOS unreachable all-ones destination dropped; continuing queue");
                             OutBuffers.Delete(packetnum);
                             delete packet;
                             continue;
