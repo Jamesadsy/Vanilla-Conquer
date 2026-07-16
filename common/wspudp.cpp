@@ -315,6 +315,32 @@ bool UDPInterfaceClass::Open_Socket(SOCKET)
 }
 
 /***********************************************************************************************
+ * UDPInterfaceClass::WriteTo -- Trace direct UDP dispatch before using the base queue          *
+ *                                                                                             *
+ * INPUT:    ptr to buffer, length, and legacy IPX address                                     *
+ *                                                                                             *
+ * OUTPUT:   Nothing                                                                           *
+ *                                                                                             *
+ *=============================================================================================*/
+void UDPInterfaceClass::WriteTo(void* buffer, int buffer_len, void* address)
+{
+    NetNumType network;
+    NetNodeType node;
+    IPXAddressClass* ipx_address = (IPXAddressClass*)address;
+
+    ipx_address->Get_Address(network, node);
+    DBG_LOG("UDP_DIAG UDP override WriteTo entered: network=%u.%u.%u.%u full-broadcast=%d length=%d",
+            network[0],
+            network[1],
+            network[2],
+            network[3],
+            ipx_address->Is_Broadcast(),
+            buffer_len);
+
+    WinsockInterfaceClass::WriteTo(buffer, buffer_len, address);
+}
+
+/***********************************************************************************************
  * UDPIC::Broadcast -- Send data via the Winsock socket                                        *
  *                                                                                             *
  *                                                                                             *
@@ -622,6 +648,11 @@ int UDPInterfaceClass::Message_Handler()
 
                 if (rc == SOCKET_ERROR) {
                     int send_error = LastSocketError;
+                    DBG_LOG("UDP_DIAG sendto failed: destination=%s length=%d error=%d (%s)",
+                            address,
+                            packet->BufferLen,
+                            send_error,
+                            strerror(send_error));
                     if (send_error != WSAEWOULDBLOCK) {
 #if defined(__APPLE__) && TARGET_OS_IOS
                         const unsigned char all_ones_destination[4] = {0xff, 0xff, 0xff, 0xff};
@@ -633,10 +664,6 @@ int UDPInterfaceClass::Message_Handler()
                             continue;
                         }
 #endif
-                        DBG_LOG("UDP_DIAG sendto failed: destination=%s length=%d error=%d",
-                                address,
-                                packet->BufferLen,
-                                send_error);
                         Clear_Socket_Error(Socket);
                     }
 

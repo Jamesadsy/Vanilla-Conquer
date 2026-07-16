@@ -55,6 +55,7 @@ public:
 #endif
     virtual bool Open_Socket(SOCKET socketnum);
     virtual void Set_Broadcast_Address(void* address);
+    virtual void WriteTo(void* buffer, int buffer_len, void* address);
     virtual void Broadcast(void* buffer, int buffer_len);
 
     virtual ProtocolEnum Get_Protocol(void)
