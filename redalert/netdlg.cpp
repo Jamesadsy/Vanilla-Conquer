@@ -805,6 +805,7 @@ static int Net_Join_Dialog(void)
     enum
     {
         BUTTON_NAME = 100,
+        BUTTON_CHAT,
 #ifdef OLDWAY
         BUTTON_GDI,
         BUTTON_NOD,
@@ -896,6 +897,10 @@ static int Net_Join_Dialog(void)
                        d_name_w,
                        d_name_h,
                        EditClass::ALPHANUMERIC);
+    // The message edit label is not part of the command chain. Keep the existing
+    // box drawing, but give its visible area a RA-local hit target so a touch can
+    // deliberately restore message focus (and the iOS soft keyboard).
+    ControlClass chatbox(BUTTON_CHAT, d_send_x, d_send_y, d_send_w, d_send_h);
 
 #ifdef OLDWAY
     TextButtonClass gdibtn(BUTTON_GDI, TXT_ALLIES, TPF_BUTTON, d_gdi_x, d_gdi_y, d_gdi_w);
@@ -1243,10 +1248,12 @@ static int Net_Join_Dialog(void)
                 staticlevel.Zap();
                 staticcredits.Zap();
                 staticaiplayers.Zap();
+                chatbox.Zap();
 
                 commands = &cancelbtn;
                 gamelist.Add_Tail(*commands);
                 playerlist.Add_Tail(*commands);
+                chatbox.Add_Tail(*commands);
 
                 //...............................................................
                 //	Only add the name edit field, the House, Join & New buttons if
@@ -1469,6 +1476,24 @@ static int Net_Join_Dialog(void)
 
                 display = REDRAW_COLORS;
             }
+            break;
+
+        //..................................................................
+        // The name edit control returns this event only after Return has
+        // cleared its focus. Consume it here instead of passing it to the
+        // persistent chat editor, so the iOS keyboard stays dismissed.
+        //..................................................................
+        case (BUTTON_NAME | KN_BUTTON):
+            name_edt.Clear_Focus();
+            name_edt.Flag_To_Redraw();
+            break;
+
+        //..................................................................
+        // The visible chat entry is a message label rather than a command
+        // gadget. Its RA-local hit target restores the existing edit focus.
+        //..................................................................
+        case (BUTTON_CHAT | KN_BUTTON):
+            Session.Messages.Set_Edit_Focus();
             break;
 
         //..................................................................
@@ -3486,6 +3511,7 @@ static int Net_New_Dialog(void)
     enum
     {
         BUTTON_PLAYERLIST = 100,
+        BUTTON_CHAT,
         BUTTON_SCENARIOLIST,
         BUTTON_REJECT,
         BUTTON_COUNT,
@@ -3576,6 +3602,8 @@ static int Net_New_Dialog(void)
     TextButtonClass okbtn(BUTTON_OK, TXT_OK, TPF_BUTTON, d_ok_x, d_ok_y, 60 * RESFACTOR);
     TextButtonClass loadbtn(BUTTON_LOAD, TXT_LOAD_BUTTON, TPF_BUTTON, d_load_x, d_load_y, 60 * RESFACTOR);
     TextButtonClass cancelbtn(BUTTON_CANCEL, TXT_CANCEL, TPF_BUTTON, d_cancel_x, d_cancel_y, 60 * RESFACTOR);
+    // Non-drawing touch target for the existing message entry box.
+    ControlClass chatbox(BUTTON_CHAT, d_send_x, d_send_y, d_send_w, d_send_h);
 
     StaticButtonClass staticunit(0, "    ", TPF_TEXT, d_count_x + d_count_w + 2 * RESFACTOR, d_count_y);
     StaticButtonClass staticlevel(0, "    ", TPF_TEXT, d_level_x + d_level_w + 2 * RESFACTOR, d_level_y);
@@ -3586,6 +3614,7 @@ static int Net_New_Dialog(void)
     //	Build the button list
     //------------------------------------------------------------------------
     commands = &playerlist;
+    chatbox.Add_Tail(*commands);
     scenariolist.Add_Tail(*commands);
     rejectbtn.Add_Tail(*commands);
     staticunit.Add_Tail(*commands);
@@ -3861,11 +3890,13 @@ static int Net_New_Dialog(void)
                 okbtn.Zap();
                 cancelbtn.Zap();
                 loadbtn.Zap();
+                chatbox.Zap();
 
                 /*
                 ** Hack hack, hack
                 */
                 commands = &playerlist;
+                chatbox.Add_Tail(*commands);
                 scenariolist.Add_Tail(*commands);
                 rejectbtn.Add_Tail(*commands);
                 staticunit.Add_Tail(*commands);
@@ -4117,6 +4148,14 @@ static int Net_New_Dialog(void)
             display = REDRAW_PARMS;
             break;
 
+        //..................................................................
+        // Reacquire the message label's existing edit focus from a tap on
+        // the visible entry box; Set_Edit_Focus drives the existing iOS
+        // soft-keyboard path through GadgetClass.
+        //..................................................................
+        case (BUTTON_CHAT | KN_BUTTON):
+            Session.Messages.Set_Edit_Focus();
+            break;
         //..................................................................
         //	OK: exit loop with true status
         //..................................................................
