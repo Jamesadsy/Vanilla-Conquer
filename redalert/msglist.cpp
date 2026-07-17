@@ -692,7 +692,7 @@ int MessageListClass::Concat_Message(char const* name, int id, char const* txt, 
  *=============================================================================================*/
 void MessageListClass::Set_Edit_Focus(void)
 {
-    if (IsEdit)
+    if (IsEdit && !EditLabel->Has_Focus())
         EditLabel->Set_Focus();
 }
 
@@ -747,7 +747,9 @@ MessageListClass::Add_Edit(PlayerColorType color, TextPrintType style, const cha
     //	Do nothing if we're already in "edit" mode
     //------------------------------------------------------------------------
     if (IsEdit) {
-        EditLabel->Set_Focus();
+        if (!EditLabel->Has_Focus()) {
+            EditLabel->Set_Focus();
+        }
         return (NULL);
     }
 
@@ -1064,7 +1066,9 @@ int MessageListClass::Input(KeyNumType& input)
                 retcode = 2;
             }
             input = KN_NONE;
-            EditLabel->Set_Focus();
+            if (!EditLabel->Has_Focus()) {
+                EditLabel->Set_Focus();
+            }
             break;
 
         //..................................................................
@@ -1073,7 +1077,9 @@ int MessageListClass::Input(KeyNumType& input)
         // next character, after the "To:" prefix.
         //..................................................................
         default:
-            EditLabel->Set_Focus();
+            if (!EditLabel->Has_Focus()) {
+                EditLabel->Set_Focus();
+            }
             bool overflowed = false;
             if (ascii >= ' ' && ascii <= 127) {
                 if ((EditCurPos - EditInitPos) < (MaxChars - 1)) {
