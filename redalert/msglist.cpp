@@ -1077,11 +1077,11 @@ int MessageListClass::Input(KeyNumType& input)
         // next character, after the "To:" prefix.
         //..................................................................
         default:
-            if (!EditLabel->Has_Focus()) {
-                EditLabel->Set_Focus();
-            }
             bool overflowed = false;
             if (ascii >= ' ' && ascii <= 127) {
+                if (!EditLabel->Has_Focus()) {
+                    EditLabel->Set_Focus();
+                }
                 if ((EditCurPos - EditInitPos) < (MaxChars - 1)) {
 
                     EditBuf[EditCurPos] = ascii;
