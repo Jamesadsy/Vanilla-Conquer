@@ -79,7 +79,11 @@
 ** geometry so the RA Join Name edit (ID 100) can be distinguished from the
 ** MessageList TextLabel (ID 0) without relying on a raw address.
 */
-static void Focus_Trace(const char* action, const GadgetClass* owner, const GadgetClass* other)
+static void Focus_Trace(const char* action,
+                        const GadgetClass* owner,
+                        unsigned owner_flags,
+                        const GadgetClass* other,
+                        unsigned other_flags)
 {
     if (Vanilla_Log_Suppressed()) {
         return;
@@ -111,13 +115,13 @@ static void Focus_Trace(const char* action, const GadgetClass* owner, const Gadg
                 owner->Y,
                 owner->Width,
                 owner->Height,
-                owner->Flags,
+                owner_flags,
                 other->Get_ID(),
                 other->X,
                 other->Y,
                 other->Width,
                 other->Height,
-                other->Flags,
+                other_flags,
                 owner == other ? 1 : 0);
     } else {
         fprintf(f,
@@ -128,7 +132,7 @@ static void Focus_Trace(const char* action, const GadgetClass* owner, const Gadg
                 owner->Y,
                 owner->Width,
                 owner->Height,
-                owner->Flags);
+                owner_flags);
     }
     fclose(f);
 }
@@ -826,7 +830,7 @@ void GadgetClass::Sticky_Process(unsigned flags)
 void GadgetClass::Set_Focus(void)
 {
 #if defined(__APPLE__) && TARGET_OS_IOS
-    Focus_Trace("set", this, Focused);
+    Focus_Trace("set", this, Flags, Focused, Focused ? Focused->Flags : 0);
 #endif
     if (Focused) {
         Focused->Flag_To_Redraw();
@@ -862,7 +866,7 @@ void GadgetClass::Clear_Focus(void)
 {
     if (Focused == this) {
 #if defined(__APPLE__) && TARGET_OS_IOS
-        Focus_Trace("clear", this, 0);
+        Focus_Trace("clear", this, Flags, 0, 0);
 #endif
         Flags &= ~KEYBOARD;
         Focused = 0;
