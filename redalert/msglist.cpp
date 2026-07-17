@@ -737,8 +737,12 @@ bool MessageListClass::Has_Edit_Focus(void)
  * HISTORY:                                                                *
  *   05/22/1995 BRR : Created.                                             *
  *=========================================================================*/
-TextLabelClass*
-MessageListClass::Add_Edit(PlayerColorType color, TextPrintType style, const char* to, char cursor, int width)
+TextLabelClass* MessageListClass::Add_Edit(PlayerColorType color,
+                                          TextPrintType style,
+                                          const char* to,
+                                          char cursor,
+                                          int width,
+                                          bool take_focus)
 {
     int i;
     TextLabelClass* txtlabel;
@@ -747,7 +751,7 @@ MessageListClass::Add_Edit(PlayerColorType color, TextPrintType style, const cha
     //	Do nothing if we're already in "edit" mode
     //------------------------------------------------------------------------
     if (IsEdit) {
-        if (!EditLabel->Has_Focus()) {
+        if (take_focus && !EditLabel->Has_Focus()) {
             EditLabel->Set_Focus();
         }
         return (NULL);
@@ -791,7 +795,9 @@ MessageListClass::Add_Edit(PlayerColorType color, TextPrintType style, const cha
 
     if (EditLabel) {
         IsEdit = 1;
-        EditLabel->Set_Focus();
+        if (take_focus) {
+            EditLabel->Set_Focus();
+        }
     } else {
         IsEdit = 0;
     }

@@ -1795,6 +1795,7 @@ static int Net_Join_Dialog(void)
                 Session.Messages.Draw();
                 Show_Mouse();
             } else if (i == 3 || i == 4) {
+                bool keep_chat_focus = (i == 4);
                 //...............................................................
                 //	If 'Input' returned 3, it means send the current message.
                 //...............................................................
@@ -1853,7 +1854,8 @@ static int Net_Join_Dialog(void)
                                           TPF_TEXT,
                                           NULL,
                                           '_',
-                                          d_message2_w);
+                                          d_message2_w,
+                                          keep_chat_focus);
                 display = REDRAW_MESSAGE;
             }
 
@@ -4259,6 +4261,7 @@ static int Net_New_Dialog(void)
                 Session.Messages.Draw();
                 Show_Mouse();
             } else if (i == 3 || i == 4) {
+                bool keep_chat_focus = (i == 4);
                 //...............................................................
                 //	If 'input' returned 3, it means send the current message.
                 //...............................................................
@@ -4304,7 +4307,8 @@ static int Net_New_Dialog(void)
                                           TPF_TEXT,
                                           NULL,
                                           '_',
-                                          d_message_w);
+                                          d_message_w,
+                                          keep_chat_focus);
 
                 display = REDRAW_MESSAGE;
             }
