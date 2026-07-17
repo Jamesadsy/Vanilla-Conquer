@@ -130,6 +130,12 @@ public:
     */
 protected:
     /*.....................................................................
+    This override matches ConnectionClass's queued-send virtual interface.
+    It delegates to the address-aware global sender below.
+    .....................................................................*/
+    virtual int Send(char* buf, int buflen, void* extrabuf, int extralen);
+
+    /*.....................................................................
     This is the overloaded Send routine declared in ConnectionClass, and
     used in SequencedConnClass.  This special version sends to the address
     embedded within the GlobalHeaderType.

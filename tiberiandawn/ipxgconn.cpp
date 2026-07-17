@@ -322,6 +322,11 @@ int IPXGlobalConnClass::Get_Packet(void* buf, int* buflen, IPXAddressClass* addr
  * HISTORY:                                                                *
  *   12/20/1994 BR : Created.                                              *
  *=========================================================================*/
+int IPXGlobalConnClass::Send(char* buf, int buflen, void*, int)
+{
+    return Send(buf, buflen);
+}
+
 int IPXGlobalConnClass::Send(char* buf, int buflen)
 {
     IPXAddressClass* addr;
