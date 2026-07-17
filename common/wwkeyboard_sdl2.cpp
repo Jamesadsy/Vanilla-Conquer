@@ -101,9 +101,6 @@ void WWKeyboardClassSDL2::Fill_Buffer_From_System(void)
             break;
         case SDL_KEYDOWN:
 #if defined(__APPLE__) && TARGET_OS_IOS
-            if (event.key.keysym.scancode == SDL_SCANCODE_RETURN) {
-                TOUCHLOG("ra-keyfocus: SDL_KEYDOWN Return text-input=%d", SDL_IsTextInputActive() ? 1 : 0);
-            }
             // Double-char fix: on iOS the soft keyboard emits BOTH an SDL_KEYDOWN (real
             // scancode) AND an SDL_TEXTINPUT for each printable key. The scancode route
             // (To_ASCII + sdl_keymap) and the SDL_TEXTINPUT route (WWKEY_TEXT_BIT) would
@@ -135,11 +132,6 @@ void WWKeyboardClassSDL2::Fill_Buffer_From_System(void)
             // scancodes and are handled by the normal keymap path, so they are skipped here.
             for (const char* p = event.text.text; *p != '\0'; ++p) {
                 unsigned char c = (unsigned char)*p;
-                if (c == '\r' || c == '\n') {
-                    TOUCHLOG("ra-keyfocus: SDL_TEXTINPUT control 0x%02X text-input=%d",
-                             c,
-                             SDL_IsTextInputActive() ? 1 : 0);
-                }
                 if (c >= 0x20 && c < 0x7F) {
                     Put((unsigned short)(c | WWKEY_TEXT_BIT));
                     TOUCHLOG("textinput: '%c' (0x%02X) -> buffer", c, c);
@@ -696,7 +688,7 @@ void WWKeyboardClassSDL2::Show_Soft_Keyboard()
 #if defined(__APPLE__) && TARGET_OS_IOS
     if (!SDL_IsTextInputActive()) {
         SDL_StartTextInput();
-        TOUCHLOG("ra-keyfocus: SDL_StartTextInput (edit focus gained)");
+        TOUCHLOG("soft keyboard: SDL_StartTextInput (edit focus gained)");
     }
 #endif
 }
@@ -706,7 +698,7 @@ void WWKeyboardClassSDL2::Hide_Soft_Keyboard()
 #if defined(__APPLE__) && TARGET_OS_IOS
     if (SDL_IsTextInputActive()) {
         SDL_StopTextInput();
-        TOUCHLOG("ra-keyfocus: SDL_StopTextInput (edit focus cleared)");
+        TOUCHLOG("soft keyboard: SDL_StopTextInput (edit focus cleared)");
     }
 #endif
 }

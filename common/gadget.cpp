@@ -55,12 +55,83 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "gadget.h"
+#include "debugstring.h"
 #include "filepcx.h"
 #include "wwmouse.h"
 #ifdef _WIN32
 #include <io.h>
 #else
 #include <unistd.h>
+#endif
+
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
+#if defined(__APPLE__) && TARGET_OS_IOS
+#include <cstdio>
+#include <cstdlib>
+#include <ctime>
+
+/*
+** WO-026: Focus ownership is otherwise invisible in the Files-visible iOS
+** touch log. Record only real focus transitions, with stable control ID and
+** geometry so the RA Join Name edit (ID 100) can be distinguished from the
+** MessageList TextLabel (ID 0) without relying on a raw address.
+*/
+static void Focus_Trace(const char* action, const GadgetClass* owner, const GadgetClass* other)
+{
+    if (Vanilla_Log_Suppressed()) {
+        return;
+    }
+
+    const char* home = getenv("HOME");
+    if (home == nullptr) {
+        home = ".";
+    }
+    char path[1200];
+    snprintf(path, sizeof(path), "%s/Documents/vctouch.txt", home);
+    FILE* f = fopen(path, "a");
+    if (f == nullptr) {
+        return;
+    }
+    time_t t = time(nullptr);
+    struct tm* lt = localtime(&t);
+    char timestamp[32];
+    if (lt) {
+        strftime(timestamp, sizeof(timestamp), "%H:%M:%S", lt);
+        fprintf(f, "[%s] ", timestamp);
+    }
+    if (other) {
+        fprintf(f,
+                "ra-keyfocus: %s owner{id=%u rect=%d,%d,%d,%d flags=0x%X} other{id=%u rect=%d,%d,%d,%d flags=0x%X} same=%d\n",
+                action,
+                owner->Get_ID(),
+                owner->X,
+                owner->Y,
+                owner->Width,
+                owner->Height,
+                owner->Flags,
+                other->Get_ID(),
+                other->X,
+                other->Y,
+                other->Width,
+                other->Height,
+                other->Flags,
+                owner == other ? 1 : 0);
+    } else {
+        fprintf(f,
+                "ra-keyfocus: %s owner{id=%u rect=%d,%d,%d,%d flags=0x%X}\n",
+                action,
+                owner->Get_ID(),
+                owner->X,
+                owner->Y,
+                owner->Width,
+                owner->Height,
+                owner->Flags);
+    }
+    fclose(f);
+}
 #endif
 
 extern WWKeyboardClass* Keyboard;
@@ -754,6 +825,9 @@ void GadgetClass::Sticky_Process(unsigned flags)
  *=============================================================================================*/
 void GadgetClass::Set_Focus(void)
 {
+#if defined(__APPLE__) && TARGET_OS_IOS
+    Focus_Trace("set", this, Focused);
+#endif
     if (Focused) {
         Focused->Flag_To_Redraw();
         Focused->Clear_Focus();
@@ -787,6 +861,9 @@ void GadgetClass::Set_Focus(void)
 void GadgetClass::Clear_Focus(void)
 {
     if (Focused == this) {
+#if defined(__APPLE__) && TARGET_OS_IOS
+        Focus_Trace("clear", this, 0);
+#endif
         Flags &= ~KEYBOARD;
         Focused = 0;
 
