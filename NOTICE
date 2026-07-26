@@ -1,0 +1,45 @@
+NOTICE — Jamesadsy/Vanilla-Conquer (experimental fork)
+
+This repository is an experimental, community-maintained fork of Vanilla Conquer
+(upstream: TheAssemblyArmada/Vanilla-Conquer), containing in-progress iOS (arm64)
+portability work.
+
+Licence
+-------
+This project is distributed under the GNU General Public License, Version 3,
+with the additional terms provided by Electronic Arts Inc. See "License.txt" in
+the repository root for the full text. Electronic Arts Inc. released only
+TiberianDawn.dll and RedAlert.dll and their corresponding source code under that
+licence.
+
+Attribution
+-----------
+- Upstream project: Vanilla Conquer by The Assembly Armada and contributors.
+- Original source: Electronic Arts Inc. / Westwood Studios.
+This fork adds modifications (including iOS build work) by the fork maintainer
+and does not alter the licensing of the upstream or original source.
+
+Trademarks and non-affiliation
+-------------------------------
+Command & Conquer, Tiberian Dawn, Red Alert, and related names and logos are
+trademarks of their respective owners. Apple and iOS are trademarks of Apple Inc.
+This fork is NOT affiliated with, sponsored by, or endorsed by Electronic Arts
+Inc., Westwood Studios, Apple Inc., or the upstream Vanilla Conquer project.
+All product and company names are used for identification purposes only.
+
+Game data
+---------
+This repository contains SOURCE CODE ONLY. It does NOT include or distribute any
+commercial game data, assets, movies, music, or complete game packages. Users
+must supply their own lawfully obtained, compatible game data. Do not use
+unofficial repacks.
+
+Build artifacts
+---------------
+Any downloadable build artifacts produced by this repository's CI are
+experimental, unsigned debug builds. They are not signed releases and carry no
+warranty. See SECURITY.md.
+
+This NOTICE is informational and is not legal advice. Licensing, trademark, and
+redistribution questions should be confirmed with the upstream project and, where
+material, qualified legal counsel.

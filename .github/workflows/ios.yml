@@ -1,24 +1,33 @@
-# Vanilla Conquer — iOS (arm64) stage-1 build
-# Place at: .github/workflows/ios.yml in your fork of TheAssemblyArmada/Vanilla-Conquer (vanilla branch)
+# Vanilla Conquer — iOS (arm64) stage-1 build [HARDENED]
+# Place at: .github/workflows/ios.yml in this fork (vanilla branch)
 #
 # What this does:
 #   1. Builds SDL2 and openal-soft as STATIC libs for iOS (no Frameworks/ dir, no rpath juggling)
 #   2. Cross-compiles vanillatd + vanillara with CMake's native iOS support (Ninja = no Xcode project)
-#   3. DUMPS common/paths.cpp into the log so we can see the __APPLE__ data-dir branch (diagnostic)
+#   3. Optionally dumps common/paths.cpp for manually requested diagnostics
 #   4. Patches Info.plist in-place (Track B): non-empty CFBundleIdentifier + iOS-required keys
 #   5. Inspects + verifies the .app bundles and uploads them
-#   6. Enables the engine's debugstring logging layer (VANILLA_LOG_ENABLE - see common/debugstring.h);
-#      startup.cpp routes it to Documents/vcengine.txt on device. Remove the CMAKE_CXX_FLAGS line
-#      below to build with it off again.
+#   6. Enables the engine's debugstring logging layer only when diagnostics are
+#      explicitly requested on a manual dispatch
 #   7. Stamps BUILDINFO.txt (commit / UTC time / run number) into each bundle so "which build is on
 #      my phone?" is one glance in the Files app.
 #
-# Manual trigger only — audit, commit, run from the Actions tab.
+# Security hardening: least privilege, pinned dependencies/actions, diagnostics
+# disabled by default, provenance/checksums, bounded artifact retention, and
+# owner-neutral bundle identifiers.
 
 name: iOS build (stage 1)
 
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
+    inputs:
+      enable_diagnostics:
+        description: "Compile verbose engine logging and dump diagnostic source. Leave false for normal/public builds."
+        type: boolean
+        default: false
   push:
     branches:
       - vanilla
@@ -31,17 +40,21 @@ on:
 env:
   IOS_DEPLOYMENT_TARGET: "16.0"          # safe floor; device is iOS 27
   PREFIX: ${{ github.workspace }}/ios-prefix
+  BUNDLE_ID_PREFIX: "org.vanillaconquer"
+  SDL_COMMIT: "76847b46be9cb461b7a289cc004fe3d3d10814f2"
+  OPENAL_COMMIT: "4efe6146a1bf1f9c4782c1a9e1fc3d0dea18b972"
 
 jobs:
   build-ios:
     runs-on: macos-latest                # Apple Silicon runner, Xcode + iOS SDK preinstalled
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           submodules: recursive
 
       - name: Dump paths source (diagnostic - where does it look for data?)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_diagnostics }}
         run: |
           echo "=== common/paths.cpp ==="
           cat common/paths.cpp || echo "paths.cpp not found at common/paths.cpp"
@@ -61,7 +74,9 @@ jobs:
 
       - name: Build SDL2 (static, iOS)
         run: |
-          git clone --depth 1 --branch SDL2 https://github.com/libsdl-org/SDL.git sdl2-src
+          git clone https://github.com/libsdl-org/SDL.git sdl2-src
+          git -C sdl2-src checkout "${SDL_COMMIT}"
+          git -C sdl2-src rev-parse HEAD
           cmake -S sdl2-src -B sdl2-build -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_OSX_SYSROOT=iphoneos \
@@ -78,7 +93,9 @@ jobs:
           ls -la ${PREFIX}/lib/ | grep -i sdl2main || { echo "::error::libSDL2main.a missing from prefix"; exit 1; }
       - name: Build openal-soft (static, iOS)
         run: |
-          git clone --depth 1 https://github.com/kcat/openal-soft.git openal-src
+          git clone https://github.com/kcat/openal-soft.git openal-src
+          git -C openal-src checkout "${OPENAL_COMMIT}"
+          git -C openal-src rev-parse HEAD
           cmake -S openal-src -B openal-build -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_OSX_SYSROOT=iphoneos \
@@ -95,6 +112,7 @@ jobs:
       - name: Configure Vanilla Conquer (iOS)
         env:
           CMAKE_FIND_ROOT_PATH: ${{ env.PREFIX }}
+          DIAG_FLAGS: ${{ (github.event_name == 'workflow_dispatch' && inputs.enable_diagnostics) && '-DVANILLA_LOG_ENABLE' || '' }}
         # NOTE: libSDL2main.a is prepended to the linker flags. On iOS, SDL owns
         # main(): startup.cpp includes SDL_main.h (renaming the engine's main to
         # SDL_main), and libSDL2main.a provides the real main() which starts the
@@ -102,11 +120,8 @@ jobs:
         # the app lifecycle. Without it the link either fails (no main) or the app
         # dies at SDL_CreateWindow with "Application didn't initialize properly".
         #
-        # NOTE: CMAKE_CXX_FLAGS defines VANILLA_LOG_ENABLE, which widens the gate in
-        # common/debugstring.h so the engine's CCDebugString/DBG_* logging compiles
-        # into this Release build (normally it is _DEBUG-only and compiles to
-        # nothing). startup.cpp routes the output to Documents/vcengine.txt on the
-        # device. Delete this one flag to switch the whole layer back off.
+        # DIAG_FLAGS is empty for normal/public builds. Verbose engine logging is
+        # compiled only when the manually-dispatched diagnostics input is enabled.
         run: |
           cmake -S . -B build-ios -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
@@ -114,8 +129,8 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=${IOS_DEPLOYMENT_TARGET} \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_CXX_FLAGS="-DVANILLA_LOG_ENABLE" \
-            -DCMAKE_OBJCXX_FLAGS="-DVANILLA_LOG_ENABLE" \
+            -DCMAKE_CXX_FLAGS="${DIAG_FLAGS}" \
+            -DCMAKE_OBJCXX_FLAGS="${DIAG_FLAGS}" \
             -DMAKE_BUNDLE=OFF \
             -DNETWORKING=ON \
             -DBUILD_VANILLATD=ON \
@@ -130,12 +145,22 @@ jobs:
 
       - name: Stamp build info into bundles
         run: |
+          NINJA_VERSION="$(ninja --version 2>/dev/null || echo unknown)"
+          SDL_SHA="$(git -C sdl2-src rev-parse HEAD 2>/dev/null || echo unknown)"
+          OPENAL_SHA="$(git -C openal-src rev-parse HEAD 2>/dev/null || echo unknown)"
           for app in vanillatd vanillara; do
-            echo "commit=${GITHUB_SHA}"         >  build-ios/$app.app/BUILDINFO.txt
-            echo "built_utc=$(date -u +%FT%TZ)" >> build-ios/$app.app/BUILDINFO.txt
-            echo "run=${GITHUB_RUN_NUMBER}"     >> build-ios/$app.app/BUILDINFO.txt
-            echo "--- $app BUILDINFO.txt ---"
-            cat build-ios/$app.app/BUILDINFO.txt
+            info="build-ios/$app.app/BUILDINFO.txt"
+            {
+              echo "warning=EXPERIMENTAL UNSIGNED DEBUG BUILD - NOT A SIGNED RELEASE - see SECURITY.md"
+              echo "commit=${GITHUB_SHA}"
+              echo "built_utc=$(date -u +%FT%TZ)"
+              echo "run=${GITHUB_RUN_NUMBER}"
+              echo "diagnostics_enabled=${{ (github.event_name == 'workflow_dispatch' && inputs.enable_diagnostics) && 'true' || 'false' }}"
+              echo "dep_sdl_commit=${SDL_SHA}"
+              echo "dep_openal_commit=${OPENAL_SHA}"
+              echo "tool_ninja=${NINJA_VERSION}"
+            } > "$info"
+            echo "--- $app BUILDINFO.txt ---"; cat "$info"
           done
       - name: Fix Info.plist for iOS install (Track B)
         run: |
@@ -144,7 +169,7 @@ jobs:
             plist="build-ios/$app.app/Info.plist"
             echo "=== patching $plist ==="
             $PB -c "Delete :CFBundleIdentifier" "$plist" 2>/dev/null || true
-            $PB -c "Add :CFBundleIdentifier string com.james.$app" "$plist"
+            $PB -c "Add :CFBundleIdentifier string ${BUNDLE_ID_PREFIX}.$app" "$plist"
             # Build 1: home-screen display name. TD -> "CnC TD", RA1 (vanillara) -> "CnC RA".
             # Only CFBundleDisplayName changes; CFBundleExecutable stays "$app"
             # (renaming the binary breaks launch/packaging).
@@ -247,11 +272,19 @@ jobs:
             echo "--- linkage for $app ---"
             otool -L "$bin"
           done
+      - name: Generate artifact checksums
+        run: |
+          cd build-ios
+          find vanillatd.app vanillara.app -type f -print0 | sort -z | xargs -0 shasum -a 256 > SHA256SUMS.txt
+          echo "--- SHA256SUMS.txt ---"
+          cat SHA256SUMS.txt
       - name: Upload app bundles
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: vanilla-conquer-ios-arm64
+          name: vanilla-conquer-ios-arm64-experimental-unsigned-debug
+          retention-days: 7
           path: |
             build-ios/vanillatd.app
             build-ios/vanillara.app
+            build-ios/SHA256SUMS.txt
           if-no-files-found: error

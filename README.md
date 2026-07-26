@@ -1,6 +1,22 @@
 # Vanilla Conquer
 Vanilla Conquer is a fully portable version of the first generation C&C engine and is capable of running both Tiberian Dawn and Red Alert on multiple platforms. It can also be used for mod development for the Remastered Collection.
 
+## ⚠️ Experimental fork status — read before building or installing
+
+This is an **experimental, community-maintained source fork** of Vanilla Conquer with in-progress **iOS (arm64)** portability work. It is **not affiliated with or endorsed by** Electronic Arts, Westwood Studios, Apple, or the upstream [TheAssemblyArmada/Vanilla-Conquer](https://github.com/TheAssemblyArmada/Vanilla-Conquer) project. Command & Conquer, Tiberian Dawn, and Red Alert are trademarks of their respective owners (see `NOTICE`).
+
+**Please note:**
+
+- **Source code only — no game data.** This repository does **not** include or distribute commercial game data. You must supply your own **lawfully obtained, compatible** game data, and should not use unofficial repacks.
+- **iOS builds are experimental and unsigned.** Any CI-produced `.app` bundles are **experimental, unsigned debug builds** for technically experienced users — not signed releases. Verify provenance via each bundle's `BUILDINFO.txt` and the published `SHA256SUMS.txt`; install at your own risk.
+- **Multiplayer is trusted-LAN only.** Local multiplayer uses unauthenticated local discovery and legacy networking. Use it **only on networks you trust** — never on public, guest, or enterprise Wi-Fi.
+- **Diagnostic logs can contain personal data.** Experimental builds may write logs (e.g. `Documents/vcengine.txt`) containing local network addresses, paths, and gameplay state. **Redact** IPs, hostnames, usernames, and paths before sharing a log for support.
+- **Security reporting.** Please report suspected vulnerabilities privately — see [`SECURITY.md`](SECURITY.md). Do not file security details in public issues.
+
+For licensing and attribution, see `License.txt` and `NOTICE`.
+
+---
+
 The main focus of Vanilla Conquer is to keep the default out-of-box experience faithful to what the games were back when they were released and work as a drop-in replacement for the original executables while also providing bug fixes, compatiblity and quality of life improvements.
 
 Current project goals are tracked as [GitHub issues with the goal label](https://github.com/Vanilla-Conquer/Vanilla-Conquer/issues?q=is%3Aissue+is%3Aopen+label%3Agoal).
