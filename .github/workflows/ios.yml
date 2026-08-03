@@ -204,6 +204,26 @@ jobs:
             $PB -c "Add :UIFileSharingEnabled bool true" "$plist"
             $PB -c "Delete :LSSupportsOpeningDocumentsInPlace" "$plist" 2>/dev/null || true
             $PB -c "Add :LSSupportsOpeningDocumentsInPlace bool true" "$plist"
+            # Register the private transfer-package extension. iOS copies a file
+            # opened with the app into Documents/Inbox; the engine bootstrap accepts
+            # that location as well as the visible Documents root.
+            $PB -c "Delete :UTExportedTypeDeclarations" "$plist" 2>/dev/null || true
+            $PB -c "Add :UTExportedTypeDeclarations array" "$plist"
+            $PB -c "Add :UTExportedTypeDeclarations:0 dict" "$plist"
+            $PB -c "Add :UTExportedTypeDeclarations:0:UTTypeIdentifier string org.vanillaconquer.vcvault" "$plist"
+            $PB -c "Add :UTExportedTypeDeclarations:0:UTTypeConformsTo array" "$plist"
+            $PB -c "Add :UTExportedTypeDeclarations:0:UTTypeConformsTo:0 string public.data" "$plist"
+            $PB -c "Add :UTExportedTypeDeclarations:0:UTTypeTagSpecification dict" "$plist"
+            $PB -c "Add :UTExportedTypeDeclarations:0:UTTypeTagSpecification:public.filename-extension array" "$plist"
+            $PB -c "Add :UTExportedTypeDeclarations:0:UTTypeTagSpecification:public.filename-extension:0 string vcvault" "$plist"
+            $PB -c "Delete :CFBundleDocumentTypes" "$plist" 2>/dev/null || true
+            $PB -c "Add :CFBundleDocumentTypes array" "$plist"
+            $PB -c "Add :CFBundleDocumentTypes:0 dict" "$plist"
+            $PB -c "Add :CFBundleDocumentTypes:0:CFBundleTypeName string Vanilla Vault transfer" "$plist"
+            $PB -c "Add :CFBundleDocumentTypes:0:CFBundleTypeRole string Viewer" "$plist"
+            $PB -c "Add :CFBundleDocumentTypes:0:LSHandlerRank string Owner" "$plist"
+            $PB -c "Add :CFBundleDocumentTypes:0:LSItemContentTypes array" "$plist"
+            $PB -c "Add :CFBundleDocumentTypes:0:LSItemContentTypes:0 string org.vanillaconquer.vcvault" "$plist"
             $PB -c "Delete :UISupportedInterfaceOrientations" "$plist" 2>/dev/null || true
             $PB -c "Add :UISupportedInterfaceOrientations array" "$plist"
             $PB -c "Add :UISupportedInterfaceOrientations:0 string UIInterfaceOrientationLandscapeLeft" "$plist"

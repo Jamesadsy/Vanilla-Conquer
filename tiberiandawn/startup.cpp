@@ -63,6 +63,7 @@
 
 #include "function.h"
 #include "common/ini.h"
+#include "common/ios_vault_import.h"
 #include "common/paths.h"
 #include "common/utfargs.h"
 #include "common/debugstring.h"
@@ -383,6 +384,15 @@ int main(int argc, char** argv)
         VCDBG("engine log routed to vcengine.txt");
     }
     VCDBG_Data_Audit(args.ArgV[0]);
+#endif
+
+#if defined(__APPLE__) && TARGET_OS_IOS
+    std::string vault_error;
+    if (!IOS_Vault_Import_And_Configure("td", "vanilla-td.vcvault", "CONQUER.MIX", args.ArgV[0], vault_error)) {
+        VCDBG("Vault import unavailable: %s", vault_error.c_str());
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Private game data needed", vault_error.c_str(), NULL);
+        return EXIT_FAILURE;
+    }
 #endif
 
     CCDebugString("C&C95 - Starting up.\n");

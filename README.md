@@ -131,6 +131,30 @@ While it is possible to use the game data from the Remastered Collection, The Ul
 Any repackaged version that you may already have from any unofficial source is _not_ supported.
 If you encounter a bug that may be data related like invisible things or crashing when using a certain unit please retest with the retail data first before submitting a bug report.
 
+### Private Vanilla Vault transfer on iOS
+
+The experimental iOS apps can import account-owned game data without embedding it in
+the `.app` bundle:
+
+1. Upload a complete prepared TD or RA portable data folder to your private Vanilla
+   Vault account. ISO images are not accepted and no game assets are stored in this
+   source repository.
+2. In Safari on the iPhone, sign in to the same owner-only vault and download
+   `vanilla-td.vcvault` or `vanilla-ra.vcvault`.
+3. Open the package with the matching CnC app, or save it under **Files → On My
+   iPhone → CnC TD/CnC RA** and reopen the app.
+
+At startup, the iOS-only bootstrap accepts the matching package from `Documents` or
+`Documents/Inbox`, validates the tar header checksums and every relative path, rejects
+links and special entries, and imports regular files to
+`Documents/VaultData/td` or `Documents/VaultData/ra`. The engine then uses that
+directory as its read-only data root while saves and settings remain in Documents.
+Existing bundle-embedded data is retained as a backwards-compatible fallback.
+
+The package is a private transfer container, not a redistributable game build. Do not
+share it. Touch, controller, local-network, and save-game behaviour are unchanged by
+the importer.
+
 ### Remastered
 
 The build process will produce _Vanilla_TD_ and _Vanilla_RA_ directories in your build directory if you enable them with `-DBUILD_REMASTERTD=ON` and `-DBUILD_REMASTERRA=ON`.

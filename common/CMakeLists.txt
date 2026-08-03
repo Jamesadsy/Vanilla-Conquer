@@ -47,6 +47,7 @@ set(COMMON_SRC
     ini.cpp
     int.cpp
     internet.cpp
+    ios_vault_import.cpp
     irandom.cpp
     keybuff.cpp
     keyframe.cpp
