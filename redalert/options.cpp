@@ -61,6 +61,11 @@
 #include "function.h"
 #include "hsv.h"
 #include "options.h"
+#include "common/paths.h"
+
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 
 #ifdef SDL_BUILD
 char const* const OptionsClass::HotkeyName = "SDLHotkeys";
@@ -556,10 +561,21 @@ void OptionsClass::Load_Settings(void)
     /*
     **	Create filename and read the file.
     */
+#if defined(__APPLE__) && TARGET_OS_IOS
+    /*
+    ** Load immutable defaults first; Documents is an overlay, not the startup
+    ** authority. The same setting reader is then run a second time below only
+    ** when a mutable file exists.
+    */
+    std::string bootstrap_config_path = Paths.Concatenate_Paths(Paths.Data_Path(), CONFIG_FILE_NAME);
+    RawFileClass file(bootstrap_config_path.c_str());
+#else
     CCFileClass file(CONFIG_FILE_NAME);
+#endif
     INIClass ini;
     ini.Load(file);
 
+    auto load_settings = [this](INIClass& ini) {
     /*
     **	Read in the Options values
     */
@@ -684,6 +700,19 @@ void OptionsClass::Load_Settings(void)
     KeyTeam8 = (KeyNumType)(KeyTeam8 & ~WWKEY_VK_BIT);
     KeyTeam9 = (KeyNumType)(KeyTeam9 & ~WWKEY_VK_BIT);
     KeyTeam10 = (KeyNumType)(KeyTeam10 & ~WWKEY_VK_BIT);
+    };
+
+    load_settings(ini);
+
+#if defined(__APPLE__) && TARGET_OS_IOS
+    std::string user_config_path = Paths.Concatenate_Paths(Paths.User_Path(), CONFIG_FILE_NAME);
+    RawFileClass user_config(user_config_path.c_str());
+    if (user_config.Is_Available()) {
+        INIClass user_ini;
+        user_ini.Load(user_config);
+        load_settings(user_ini);
+    }
+#endif
 }
 
 /***********************************************************************************************
@@ -705,7 +734,17 @@ void OptionsClass::Load_Settings(void)
  *=============================================================================================*/
 void OptionsClass::Save_Settings(void)
 {
+#if defined(__APPLE__) && TARGET_OS_IOS
+    /*
+    ** Only ever preload the mutable Documents INI before saving options. A
+    ** searching CCFileClass would fall back to the bundle on the first run, and
+    ** the iOS write redirect would serialise that bootstrap data into Documents.
+    */
+    std::string user_config_path = Paths.Concatenate_Paths(Paths.User_Path(), CONFIG_FILE_NAME);
+    RawFileClass file(user_config_path.c_str());
+#else
     CCFileClass file(CONFIG_FILE_NAME);
+#endif
     INIClass ini;
 
     /*

@@ -47,6 +47,10 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 #include "common/paths.h"
 #include <time.h> // for station ID computation
 
@@ -572,7 +576,16 @@ void SessionClass::Read_MultiPlayer_Settings(void)
 
     //	Create filename and read the file.
     INIClass ini;
+#if defined(__APPLE__) && TARGET_OS_IOS
+    std::string user_config_path = Paths.Concatenate_Paths(Paths.User_Path(), CONFIG_FILE_NAME);
+    RawFileClass file(user_config_path.c_str());
+    if (!file.Is_Available()) {
+        std::string bootstrap_config_path = Paths.Concatenate_Paths(Paths.Data_Path(), CONFIG_FILE_NAME);
+        file.Set_Name(bootstrap_config_path.c_str());
+    }
+#else
     CDFileClass file(CONFIG_FILE_NAME);
+#endif
     if (ini.Load(file)) {
 
         //	Get the player's last-used Handle
@@ -647,8 +660,22 @@ void SessionClass::Write_MultiPlayer_Settings(void)
 {
 #ifndef REMASTER_BUILD
     INIClass ini;
+#if defined(__APPLE__) && TARGET_OS_IOS
+    /*
+    ** Multiplayer preferences belong in Documents. Never preload a missing
+    ** Documents INI through the search path, or saving the handle would clone
+    ** the immutable bootstrap INI into the mutable layer.
+    */
+    std::string user_config_path = Paths.Concatenate_Paths(Paths.User_Path(), CONFIG_FILE_NAME);
+    RawFileClass file(user_config_path.c_str());
+    if (file.Is_Available()) {
+        ini.Load(file);
+    }
+    {
+#else
     CDFileClass file(CONFIG_FILE_NAME);
     if (ini.Load(file)) {
+#endif
 
         //	Save the player's last-used Handle & Color
         ini.Put_Int("MultiPlayer", "PhoneIndex", CurPhoneIdx);

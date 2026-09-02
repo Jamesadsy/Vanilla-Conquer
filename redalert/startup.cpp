@@ -376,7 +376,30 @@ int main(int argc, char* argv[])
 
         WinTimerClass::Init(60);
 
+#if defined(__APPLE__) && TARGET_OS_IOS
+        /*
+        ** iOS has two distinct REDALERT.INI roles. The bundled file is immutable
+        ** bootstrap data, while Documents contains only mutable user state. Do not
+        ** construct a searching CCFileClass here: after the first write it would
+        ** resolve to Documents and make that mutable copy startup authority.
+        */
+        std::string bootstrap_config_path = Paths.Concatenate_Paths(Paths.Data_Path(), CONFIG_FILE_NAME);
+        std::string user_config_path = Paths.Concatenate_Paths(Paths.User_Path(), CONFIG_FILE_NAME);
+        RawFileClass bootstrap_config(bootstrap_config_path.c_str());
+        RawFileClass user_config(user_config_path.c_str());
+        VCDBG("ra-ini-layer: bootstrap='%s' user='%s' exists=%d",
+              bootstrap_config.File_Name(),
+              user_config.File_Name(),
+              user_config.Is_Available());
+        VCDBG("ra-ini-layer: assets movies1=%d expand=%d expand2=%d counterstrike=%d aftermath=%d",
+              CCFileClass("MOVIES1.MIX").Is_Available(),
+              CCFileClass("EXPAND.MIX").Is_Available(),
+              CCFileClass("EXPAND2.MIX").Is_Available(),
+              CCFileClass("counterstrike.MIX").Is_Available(),
+              CCFileClass("aftermath.MIX").Is_Available());
+#else
         CCFileClass cfile(CONFIG_FILE_NAME);
+#endif
 
         Keyboard = CreateWWKeyboardClass();
 
@@ -400,12 +423,28 @@ int main(int argc, char* argv[])
 #endif
         }
 
+#if defined(__APPLE__) && TARGET_OS_IOS
+        Read_Private_Config_Struct(bootstrap_config, &NewConfig);
+#else
         Read_Private_Config_Struct(cfile, &NewConfig);
+#endif
 
         /*
         ** Set the options as requested by the ccsetup program
         */
+#if defined(__APPLE__) && TARGET_OS_IOS
+        /*
+        ** Apply the bundle defaults first, then the Documents overlay. Settings.Load
+        ** uses the current value as each missing-entry default, so the overlay need
+        ** only contain fields the player has changed.
+        */
+        Read_Setup_Options(&bootstrap_config);
+        if (user_config.Is_Available()) {
+            Read_Setup_Options(&user_config);
+        }
+#else
         Read_Setup_Options(&cfile);
+#endif
 
 #ifndef REMASTER_BUILD
         /* If DOSMode is enabled, adjust resolution accordingly. */
@@ -527,17 +566,38 @@ int main(int argc, char* argv[])
         /*
         ** See if we should run the intro
         */
+        bool play_intro = true;
+#if defined(__APPLE__) && TARGET_OS_IOS
+        /*
+        ** Intro state is mutable, but its default is bootstrap data. Read the
+        ** explicit Documents entry only as an override; an unrelated user-only
+        ** INI must not turn a missing Intro entry into a new default.
+        */
+        INIClass bootstrap_ini;
+        bootstrap_ini.Load(bootstrap_config);
+        play_intro = bootstrap_ini.Get_Bool("Intro", "PlayIntro", true);
+        SlowPalette = bootstrap_ini.Get_Bool("Options", "SlowPalette", false);
+        if (user_config.Is_Available()) {
+            INIClass user_ini;
+            user_ini.Load(user_config);
+            play_intro = user_ini.Get_Bool("Intro", "PlayIntro", play_intro);
+            SlowPalette = user_ini.Get_Bool("Options", "SlowPalette", SlowPalette);
+        }
+#else
         INIClass ini;
         ini.Load(cfile);
+
+        play_intro = ini.Get_Bool("Intro", "PlayIntro", true);
+        SlowPalette = ini.Get_Bool("Options", "SlowPalette", false);
+#endif
 
         /*
         **	Check for forced intro movie run disabling. If the conquer
         **	configuration file says "no", then don't run the intro.
         */
         if (!Special.IsFromInstall) {
-            Special.IsFromInstall = ini.Get_Bool("Intro", "PlayIntro", true);
+            Special.IsFromInstall = play_intro;
         }
-        SlowPalette = ini.Get_Bool("Options", "SlowPalette", false);
 
         /*
         ** Regardless of whether we should run it or not, here we're
@@ -546,8 +606,23 @@ int main(int argc, char* argv[])
         if (Special.IsFromInstall) {
             BreakoutAllowed = true;
             //				BreakoutAllowed = false;
+#if defined(__APPLE__) && TARGET_OS_IOS
+            /*
+            ** Persist only the one-shot user state. Loading bootstrap_config here
+            ** and saving it to Documents is the regression's copy-on-first-write
+            ** path, so preload Documents only when it already exists.
+            */
+            INIClass user_ini;
+            if (user_config.Is_Available()) {
+                user_ini.Load(user_config);
+            }
+            user_ini.Put_Bool("Intro", "PlayIntro", false);
+            user_ini.Save(user_config);
+            VCDBG("ra-ini-layer: saved Intro/PlayIntro to Documents only");
+#else
             ini.Put_Bool("Intro", "PlayIntro", false);
             ini.Save(cfile);
+#endif
         }
 
         Memory_Error_Exit = Print_Error_End_Exit;
@@ -562,9 +637,25 @@ int main(int argc, char* argv[])
         /*
         ** Save settings if they were changed during gameplay.
         */
+#if defined(__APPLE__) && TARGET_OS_IOS
+        /*
+        ** Seed the Documents-only option layer before saving common controls/video
+        ** preferences. This preserves first-run bundled defaults without copying
+        ** any bootstrap-only sections into the mutable file.
+        */
+        Options.Save_Settings();
+        INIClass user_ini;
+        if (user_config.Is_Available()) {
+            user_ini.Load(user_config);
+        }
+        Settings.Save(user_ini);
+        user_ini.Save(user_config);
+        VCDBG("ra-ini-layer: saved common settings to Documents only");
+#else
         ini.Load(cfile);
         Settings.Save(ini);
         ini.Save(cfile);
+#endif
 
         VisiblePage.Clear();
         HiddenPage.Clear();
