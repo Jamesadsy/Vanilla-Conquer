@@ -66,6 +66,10 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 #include "msgbox.h"
 #include "keyframe.h"
 #include "language.h"
@@ -2427,6 +2431,10 @@ void Play_Movie(char const* name, ThemeType theme, bool clrscrn, bool immediate)
     return;
 #else
 
+#if defined(__APPLE__) && TARGET_OS_IOS
+    RA_IOS_Debug_Log("ra-fmv: Play_Movie entered name=%s session=%d debug_map=%d", name ? name : "<null>", Session.Type, Debug_Map);
+#endif
+
 #ifdef CHEAT_KEYS
 //	Mono_Printf("Movie: %s\n", name);
 #endif // CHEAT_KEYS
@@ -2434,6 +2442,9 @@ void Play_Movie(char const* name, ThemeType theme, bool clrscrn, bool immediate)
     ** Don't play movies in editor mode
     */
     if (Debug_Map) {
+#if defined(__APPLE__) && TARGET_OS_IOS
+        RA_IOS_Debug_Log("ra-fmv: skipped name=%s reason=debug_map", name ? name : "<null>");
+#endif
         return;
     }
 #ifdef CHEAT_KEYS
@@ -2443,6 +2454,9 @@ void Play_Movie(char const* name, ThemeType theme, bool clrscrn, bool immediate)
     ** Don't play movies in multiplayer mode
     */
     if (Session.Type != GAME_NORMAL) {
+#if defined(__APPLE__) && TARGET_OS_IOS
+        RA_IOS_Debug_Log("ra-fmv: skipped name=%s reason=session_type", name ? name : "<null>");
+#endif
         return;
     }
 #ifdef CHEAT_KEYS
@@ -2458,7 +2472,22 @@ void Play_Movie(char const* name, ThemeType theme, bool clrscrn, bool immediate)
 //			Mono_Set_Cursor(0, 0);Mono_Printf("[%s]", fullname);
 #endif
 
-        if (!CCFileClass(fullname).Is_Available()) {
+        CCFileClass movie_file(fullname);
+        bool movie_available = movie_file.Is_Available();
+#if defined(__APPLE__) && TARGET_OS_IOS
+        MFCD* movie_mix = nullptr;
+        int movie_offset = 0;
+        int movie_size = 0;
+        bool movie_registered = MFCD::Offset(fullname, nullptr, &movie_mix, &movie_offset, &movie_size);
+        RA_IOS_Debug_Log("ra-fmv: requested=%s inner_available=%d mix_registered=%d mix=%s offset=%d size=%d",
+                         fullname,
+                         movie_available,
+                         movie_registered,
+                         movie_mix != nullptr && movie_mix->Filename != nullptr ? movie_mix->Filename : "<none>",
+                         movie_offset,
+                         movie_size);
+#endif
+        if (!movie_available) {
 #ifdef CHEAT_KEYS
 //		 Mono_Printf("fullname: %s\n", fullname);
 #endif // CHEAT_KEYS
@@ -2509,9 +2538,16 @@ void Play_Movie(char const* name, ThemeType theme, bool clrscrn, bool immediate)
         }
 
         if ((vqa = VQA_Alloc()) != NULL) {
+#if defined(__APPLE__) && TARGET_OS_IOS
+            RA_IOS_Debug_Log("ra-fmv: VQA_Alloc succeeded requested=%s", fullname);
+#endif
             VQA_Init(vqa, MixFileHandler);
 
-            if (VQA_Open(vqa, fullname, &AnimControl) == 0) {
+            int open_result = VQA_Open(vqa, fullname, &AnimControl);
+#if defined(__APPLE__) && TARGET_OS_IOS
+            RA_IOS_Debug_Log("ra-fmv: VQA_Open requested=%s result=%d", fullname, open_result);
+#endif
+            if (open_result == 0) {
                 Brokeout = false;
 // Suspend_Audio_Thread();
 #ifdef MOVIE640
@@ -2524,7 +2560,16 @@ void Play_Movie(char const* name, ThemeType theme, bool clrscrn, bool immediate)
                 // Set_Palette(BlackPalette);
                 SysMemPage.Clear();
                 InMovie = true;
-                VQA_Play(vqa, VQAMODE_RUN);
+#if defined(__APPLE__) && TARGET_OS_IOS
+                RA_IOS_Debug_Log("ra-fmv: VQA_Play entered requested=%s", fullname);
+#endif
+                VQAErrorType play_result = VQA_Play(vqa, VQAMODE_RUN);
+#if defined(__APPLE__) && TARGET_OS_IOS
+                RA_IOS_Debug_Log("ra-fmv: VQA_Play returned requested=%s result=%d breakout=%d",
+                                 fullname,
+                                 play_result,
+                                 Brokeout);
+#endif
                 VQA_Close(vqa);
                 // Resume_Audio_Thread();
                 InMovie = false;
@@ -2556,6 +2601,9 @@ void Play_Movie(char const* name, ThemeType theme, bool clrscrn, bool immediate)
 
             VQA_Free(vqa);
         } else {
+#if defined(__APPLE__) && TARGET_OS_IOS
+            RA_IOS_Debug_Log("ra-fmv: VQA_Alloc failed requested=%s", fullname);
+#endif
             assert(vqa != NULL);
         }
 #ifdef CHEAT_KEYS
@@ -2580,6 +2628,11 @@ void Play_Movie(char const* name, ThemeType theme, bool clrscrn, bool immediate)
 
 void Play_Movie(VQType name, ThemeType theme, bool clrscrn, bool immediate)
 {
+#if defined(__APPLE__) && TARGET_OS_IOS
+    RA_IOS_Debug_Log("ra-fmv: Play_Movie VQType=%d resolved=%s",
+                     name,
+                     name != VQ_NONE ? VQName[name] : "<none>");
+#endif
     if (name != VQ_NONE) {
         if (name == VQ_REDINTRO && RESFACTOR != 1) {
             IsVQ640 = true;

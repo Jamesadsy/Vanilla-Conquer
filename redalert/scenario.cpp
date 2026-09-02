@@ -60,6 +60,10 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 #include "msgbox.h"
 #include "textbtn.h"
 #include "factory.h"
@@ -323,6 +327,16 @@ bool Start_Scenario(char* name, bool briefing)
     if (!Read_Scenario(name)) {
         return (false);
     }
+
+#if defined(__APPLE__) && TARGET_OS_IOS
+    RA_IOS_Debug_Log("ra-fmv: scenario=%s briefing=%d session=%d intro=%d brief=%d action=%d",
+                     name,
+                     briefing,
+                     Session.Type,
+                     Scen.IntroMovie,
+                     Scen.BriefMovie,
+                     Scen.ActionMovie);
+#endif
 
     /*
     ** This was added in the Sept 16th 2020 update, causes colors to alternate for both in standalone.

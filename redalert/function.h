@@ -131,6 +131,7 @@ CELL Coord_Cell(COORDINATE coord);
 
 extern int Get_CD_Drive(void);
 extern void Fatal(char const* message, ...);
+extern void RA_IOS_Debug_Log(char const* fmt, ...);
 
 /*
 ** For WIN32, replace the assert macro so we get an error on the debugger screen

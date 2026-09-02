@@ -318,7 +318,7 @@ int DLL_Startup(const char* command_line_in)
 #include <cstdarg>
 #include <cstdlib>
 #include <ctime>
-static void VCDBG_write(const char* fmt, ...)
+void RA_IOS_Debug_Log(char const* fmt, ...)
 {
     const char* home = getenv("HOME");
     if (home == nullptr) {
@@ -346,8 +346,11 @@ static void VCDBG_write(const char* fmt, ...)
     fflush(f);
     fclose(f);
 }
-#define VCDBG(fmt, ...) VCDBG_write(fmt, ##__VA_ARGS__)
+#define VCDBG(fmt, ...) RA_IOS_Debug_Log(fmt, ##__VA_ARGS__)
 #else
+void RA_IOS_Debug_Log(char const*, ...)
+{
+}
 #define VCDBG(fmt, ...) ((void)0)
 #endif
 

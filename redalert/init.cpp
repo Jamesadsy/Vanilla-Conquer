@@ -107,6 +107,17 @@ static void Bootstrap(void);
 static void Init_Bulk_Data(void);
 static void Init_Keys(void);
 
+#if defined(__APPLE__) && TARGET_OS_IOS
+static void Log_Mix_Registration(const char* name, const MFCD* mix)
+{
+    RA_IOS_Debug_Log("ra-mix: name=%s constructed=%d index=%d files=%d",
+                     name,
+                     mix != nullptr,
+                     mix != nullptr && mix->Get_Index() != nullptr,
+                     mix != nullptr ? mix->Get_File_Count() : 0);
+}
+#endif
+
 extern int UnitBuildPenalty;
 
 extern unsigned int RandNumb;
@@ -2162,13 +2173,27 @@ static void Init_Expansion_Files(void)
     */
     {
         CCFileClass csfile("counterstrike.MIX");
-        if (csfile.Is_Available()) {
-            new MFCD("counterstrike.MIX", &FastKey);
+        bool counterstrike_available = csfile.Is_Available();
+#if defined(__APPLE__) && TARGET_OS_IOS
+        RA_IOS_Debug_Log("ra-expmount: counterstrike.MIX outer_available=%d", counterstrike_available);
+#endif
+        if (counterstrike_available) {
+            MFCD* counterstrike_mix = new MFCD("counterstrike.MIX", &FastKey);
+#if defined(__APPLE__) && TARGET_OS_IOS
+            Log_Mix_Registration("counterstrike.MIX", counterstrike_mix);
+#endif
             DBG_INFO("ra-expmount: mounted counterstrike.MIX");
         }
         CCFileClass amfile("aftermath.MIX");
-        if (amfile.Is_Available()) {
-            new MFCD("aftermath.MIX", &FastKey);
+        bool aftermath_available = amfile.Is_Available();
+#if defined(__APPLE__) && TARGET_OS_IOS
+        RA_IOS_Debug_Log("ra-expmount: aftermath.MIX outer_available=%d", aftermath_available);
+#endif
+        if (aftermath_available) {
+            MFCD* aftermath_mix = new MFCD("aftermath.MIX", &FastKey);
+#if defined(__APPLE__) && TARGET_OS_IOS
+            Log_Mix_Registration("aftermath.MIX", aftermath_mix);
+#endif
             DBG_INFO("ra-expmount: mounted aftermath.MIX");
         }
     }
@@ -2403,11 +2428,24 @@ static void Init_Secondary_Mixfiles(void)
     if (GeneralMix == NULL)
         GeneralMix = new MFCD("GENERAL.MIX", &FastKey); // Never cached.
 
-    if (CCFileClass("MOVIES1.MIX").Is_Available()) {
+    bool movies1_available = CCFileClass("MOVIES1.MIX").Is_Available();
+#if defined(__APPLE__) && TARGET_OS_IOS
+    RA_IOS_Debug_Log("ra-fmv-mix: MOVIES1.MIX outer_available=%d ctor_attempted=%d",
+                     movies1_available,
+                     movies1_available);
+#endif
+    if (movies1_available) {
         MoviesMix = new MFCD("MOVIES1.MIX", &FastKey); // Never cached.
     } else {
+        bool movies2_available = CCFileClass("MOVIES2.MIX").Is_Available();
+#if defined(__APPLE__) && TARGET_OS_IOS
+        RA_IOS_Debug_Log("ra-fmv-mix: MOVIES2.MIX fallback_attempted=1 outer_available=%d", movies2_available);
+#endif
         MoviesMix = new MFCD("MOVIES2.MIX", &FastKey); // Never cached.
     }
+#if defined(__APPLE__) && TARGET_OS_IOS
+    Log_Mix_Registration(movies1_available ? "MOVIES1.MIX" : "MOVIES2.MIX", MoviesMix);
+#endif
     assert(MoviesMix != NULL);
 
     /*

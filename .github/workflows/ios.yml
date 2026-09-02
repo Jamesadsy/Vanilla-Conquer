@@ -40,7 +40,7 @@ on:
 env:
   IOS_DEPLOYMENT_TARGET: "16.0"          # safe floor; device is iOS 27
   PREFIX: ${{ github.workspace }}/ios-prefix
-  BUNDLE_ID_PREFIX: "org.vanillaconquer"
+  BUNDLE_ID_PREFIX: "com.james"
   SDL_COMMIT: "76847b46be9cb461b7a289cc004fe3d3d10814f2"
   OPENAL_COMMIT: "4efe6146a1bf1f9c4782c1a9e1fc3d0dea18b972"
 
