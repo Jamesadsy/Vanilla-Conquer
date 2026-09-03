@@ -2546,12 +2546,77 @@ static void Bootstrap(void)
     */
 #ifdef STEVES_LOAD_OVERRIDE
     RawFileClass strings("CONQUER.ENG");
+#if defined(__APPLE__) && TARGET_OS_IOS
+    /*
+    ** The 1.08 loose-file override predates the expansion MIX layering. On iOS the
+    ** accepted data layout can contain a loose base CONQUER.ENG next to EXPAND2.MIX;
+    ** blindly preferring that loose file discards the expansion string IDs even though
+    ** the correctly-prioritized expansion MIX is already registered and cached.
+    ** Preserve the historical loose override unless the normal MIX lookup has selected
+    ** an expansion CONQUER.ENG, in which case the expansion table is authoritative.
+    */
+    MFCD* strings_mix = nullptr;
+    void* strings_pointer = nullptr;
+    int strings_offset = 0;
+    int strings_size = 0;
+    bool strings_registered = MFCD::Offset(Language_Name("CONQUER"),
+                                           &strings_pointer,
+                                           &strings_mix,
+                                           &strings_offset,
+                                           &strings_size);
+
+    auto mix_base_name = [](char const* filename) -> char const* {
+        if (filename == nullptr) {
+            return "<none>";
+        }
+        char const* slash = strrchr(filename, '/');
+        char const* backslash = strrchr(filename, '\\');
+        if (backslash != nullptr && (slash == nullptr || backslash > slash)) {
+            return backslash + 1;
+        }
+        return slash != nullptr ? slash + 1 : filename;
+    };
+
+    char const* strings_mix_name =
+        strings_mix != nullptr ? mix_base_name(strings_mix->Filename) : "<none>";
+    bool expansion_strings = strings_registered && strings_pointer != nullptr
+        && strings_mix != nullptr
+        && (stricmp(strings_mix_name, "EXPAND2.MIX") == 0
+            || stricmp(strings_mix_name, "EXPAND.MIX") == 0);
+    bool loose_strings_available = strings.Is_Available();
+
+    if (expansion_strings) {
+        SystemStrings = (char const*)strings_pointer;
+        RA_IOS_Debug_Log("ra-strings: active=%s source=expansion-mix loose_available=%d offset=%d size=%d",
+                         strings_mix_name,
+                         loose_strings_available,
+                         strings_offset,
+                         strings_size);
+    } else if (loose_strings_available) {
+        int loose_strings_size = strings.Size();
+        SystemStrings = new char[loose_strings_size];
+        strings.Read((void*)SystemStrings, loose_strings_size);
+        RA_IOS_Debug_Log("ra-strings: active=CONQUER.ENG source=loose mix_candidate=%s mix_registered=%d mix_resident=%d size=%d",
+                         strings_mix_name,
+                         strings_registered,
+                         strings_pointer != nullptr,
+                         loose_strings_size);
+    } else {
+        SystemStrings = (char const*)MFCD::Retrieve(Language_Name("CONQUER"));
+        RA_IOS_Debug_Log("ra-strings: active=%s source=mix-fallback mix_registered=%d resident=%d size=%d",
+                         strings_mix_name,
+                         strings_registered,
+                         SystemStrings != nullptr,
+                         strings_size);
+    }
+#else
     if (strings.Is_Available()) {
         SystemStrings = new char[strings.Size()];
         strings.Read((void*)SystemStrings, strings.Size());
     } else {
         SystemStrings = (char const*)MFCD::Retrieve(Language_Name("CONQUER"));
     }
+#endif
 #else
     SystemStrings = (char const*)MFCD::Retrieve(Language_Name("CONQUER"));
 #endif
