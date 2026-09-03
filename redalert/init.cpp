@@ -2429,24 +2429,30 @@ static void Init_Secondary_Mixfiles(void)
         GeneralMix = new MFCD("GENERAL.MIX", &FastKey); // Never cached.
 
     bool movies1_available = CCFileClass("MOVIES1.MIX").Is_Available();
+    bool movies2_available = CCFileClass("MOVIES2.MIX").Is_Available();
 #if defined(__APPLE__) && TARGET_OS_IOS
     RA_IOS_Debug_Log("ra-fmv-mix: MOVIES1.MIX outer_available=%d ctor_attempted=%d",
                      movies1_available,
                      movies1_available);
+    RA_IOS_Debug_Log("ra-fmv-mix: MOVIES2.MIX outer_available=%d ctor_attempted=%d",
+                     movies2_available,
+                     movies2_available);
 #endif
     if (movies1_available) {
         MoviesMix = new MFCD("MOVIES1.MIX", &FastKey); // Never cached.
     } else {
-        bool movies2_available = CCFileClass("MOVIES2.MIX").Is_Available();
-#if defined(__APPLE__) && TARGET_OS_IOS
-        RA_IOS_Debug_Log("ra-fmv-mix: MOVIES2.MIX fallback_attempted=1 outer_available=%d", movies2_available);
-#endif
-        MoviesMix = new MFCD("MOVIES2.MIX", &FastKey); // Never cached.
+        MoviesMix = nullptr;
+    }
+    if (movies2_available) {
+        Movies2Mix = new MFCD("MOVIES2.MIX", &FastKey); // Never cached.
+    } else {
+        Movies2Mix = nullptr;
     }
 #if defined(__APPLE__) && TARGET_OS_IOS
-    Log_Mix_Registration(movies1_available ? "MOVIES1.MIX" : "MOVIES2.MIX", MoviesMix);
+    Log_Mix_Registration("MOVIES1.MIX", MoviesMix);
+    Log_Mix_Registration("MOVIES2.MIX", Movies2Mix);
 #endif
-    assert(MoviesMix != NULL);
+    assert(MoviesMix != NULL || Movies2Mix != NULL);
 
     /*
     **	Register the score mixfile.
