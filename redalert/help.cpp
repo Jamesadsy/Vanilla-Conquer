@@ -265,9 +265,21 @@ void HelpClass::Draw_It(bool forced)
 
     forced = false; // TCTCTCTC
     if (Text != TXT_NONE && (forced || !CountDownTimer)) {
+    char const* resolved_text = Text_String(Text);
+    if (resolved_text == nullptr) {
+        RA_IOS_Debug_Log("ra-help: unresolved scenario=%s text_id=%d stage=draw",
+                         Scen.ScenarioName,
+                         Text);
+        Text = TXT_NONE;
+        CountDownTimer = 0;
+        Cost = 0;
+        Width = 0;
+        OverlapList[0] = REFRESH_EOL;
+        return;
+    }
 
         if (LogicPage->Lock()) {
-            Plain_Text_Print(Text, DrawX, DrawY, Color, BLACK, TPF_MAP | TPF_NOSHADOW);
+            Plain_Text_Print(resolved_text, DrawX, DrawY, Color, BLACK, TPF_MAP | TPF_NOSHADOW);
             LogicPage->Draw_Rect(DrawX - 1, DrawY - 1, DrawX + Width + 1, DrawY + FontHeight, Color);
 
             if (Cost) {
@@ -305,9 +317,22 @@ void HelpClass::Draw_It(bool forced)
 void HelpClass::Set_Text(int text)
 {
     if (text != TXT_NONE) {
+    char const* resolved_text = Text_String(text);
+    if (resolved_text == nullptr) {
+        RA_IOS_Debug_Log("ra-help: unresolved scenario=%s text_id=%d stage=set-text",
+                         Scen.ScenarioName,
+                         text);
+        Text = TXT_NONE;
+        CountDownTimer = 0;
+        Cost = 0;
+        Width = 0;
+        OverlapList[0] = REFRESH_EOL;
+        return;
+    }
+
         Text = text;
         Plain_Text_Print(TXT_NONE, 0, 0, 0, 0, TPF_MAP | TPF_NOSHADOW);
-        Width = String_Pixel_Width(Text_String(Text));
+        Width = String_Pixel_Width(resolved_text);
         if (IsRight) {
             DrawX = X - Width;
             DrawY = Y;
@@ -328,7 +353,7 @@ void HelpClass::Set_Text(int text)
             if (DrawY < TacPixelY + 1)
                 DrawY = TacPixelY + 1;
         }
-        memcpy((void*)OverlapList, Text_Overlap_List(Text_String(Text), DrawX - 1, DrawY), sizeof(OverlapList));
+        memcpy((void*)OverlapList, Text_Overlap_List(resolved_text, DrawX - 1, DrawY), sizeof(OverlapList));
         *(short*)&OverlapList[ARRAY_SIZE(OverlapList) - 1] = REFRESH_EOL;
     }
 }
