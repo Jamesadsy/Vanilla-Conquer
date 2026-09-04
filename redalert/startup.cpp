@@ -65,6 +65,7 @@
 #include "function.h"
 #include "language.h"
 #include "settings.h"
+#include "common/ios_vault_import.h"
 #include "common/paths.h"
 #include "common/utfargs.h"
 
@@ -360,6 +361,15 @@ int main(int argc, char* argv[])
     WWDebugString("RA95 - Starting up.\n");
     WWDebugString("RA1 boot: startup reached\n"); // WO-008 greppable boot marker (content-verify string)
     VCDBG("RA1 boot: startup reached");
+
+#if defined(__APPLE__) && TARGET_OS_IOS
+    std::string vault_error;
+    if (!IOS_Vault_Import_And_Configure("ra", "vanilla-ra.vcvault", "REDALERT.MIX", args.ArgV[0], vault_error)) {
+        VCDBG("Vault import unavailable: %s", vault_error.c_str());
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Private game data needed", vault_error.c_str(), NULL);
+        return EXIT_FAILURE;
+    }
+#endif
 
     if (Ram_Free(MEM_NORMAL) < 7000000) {
         printf(TEXT_NO_RAM);

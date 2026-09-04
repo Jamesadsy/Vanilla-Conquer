@@ -185,11 +185,15 @@ const char* PathsClass::Data_Path()
         }
 
 #if defined(__APPLE__) && TARGET_OS_IOS
-        // iOS: the game data is bundled inside the read-only .app directory, which is
-        // exactly where Program_Path() resolves to (.../vanillatd.app). The desktop
-        // "<parent>/share" layout below points outside the sandbox at a nonexistent
-        // directory, so on iOS we read data straight from the bundle root instead.
-        DataPath = ProgramPath;
+        // A private Vanilla Vault package is imported into the writable app sandbox
+        // before Paths.Init. Prefer that exact absolute path when present, while
+        // retaining bundle-embedded data as a backwards-compatible fallback.
+        const char* vault_data_path = std::getenv("VANILLA_DATA_PATH");
+        if (vault_data_path != nullptr && vault_data_path[0] == '/') {
+            DataPath = vault_data_path;
+        } else {
+            DataPath = ProgramPath;
+        }
 #else
         DataPath = ProgramPath.substr(0, ProgramPath.find_last_of("/")) + SEP + "share";
 #endif
